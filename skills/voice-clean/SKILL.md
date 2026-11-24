@@ -24,6 +24,7 @@ Measure first, treat second, listen last. Every choice here is backed by a numbe
 9. **Downmix with an average.** `-af pan=mono|c0=0.5*c0+0.5*c1`, never `-ac 1`, which sums dual mono to +3 dB on float output. The scripts average channels in numpy.
 10. **Process the cut timeline in one pass.** Compressor and expander state never restarts at a splice. Per-clip settings are separate full renders switched at EDL boundaries with a 5 ms crossfade.
 11. **Write float WAV** so inter-sample peaks survive to the master limiter.
+12. **Control peaks here, not on the mix bus.** Every preset ends with a `peak_limit` stage: a look-ahead limiter at 4x oversampling (attack 3 ms, release 50 ms, no auto-release) whose ceiling is set from the stage's own measured loudness, so the true peak sits at most `peak_plr_db` (default 14) dB above the mono voice loudness. `mix.py` plays the voice as dual mono, which reads 3 LU louder, so the voice peaks at about -3 dBTP when the mix is at -14 LUFS and the mix-bus limiter has almost nothing left to do. Isolated consonant onsets pass a 10 ms compressor attack untouched; without this stage a close-mic voice measured 18.8 dB peak to loudness and the mix needed 3.9 dB of bus limiting. At 14 it changed 0.7 % of 10 ms speech frames by more than 2 dB (max 4 dB), lowered the loudness 0.2 dB and kept the floor gate. Going to 12 cost 0.9 dB of loudness and failed the floor gate; do not go under 13.
 
 ## Workflow
 
@@ -80,7 +81,7 @@ Global overrides go on the command line: `--set comp_threshold_db=-16 --set expa
 | Sibilance: 5-10 kHz band above -5 dB of total speech energy | Stronger de-ess on that clip only, same split | `deess_i` 0.5 (above -5 dB) or 0.6 (above -3 dB) |
 | Plosive pops: low-frequency bursts in `plosive_events` | The 80 Hz high-pass in every preset; raise to 100 Hz only if still audible | `--set highpass_hz=100` |
 | Clipped samples | `adeclip` as the first stage, and flag the take | add `"adeclip"` to a copy of the preset |
-| Hot true peak (above -1 dBTP) | Nothing here; the master limiter handles it | |
+| Hot true peak, or peaks far above the loudness (peak to loudness over 14 dB) | The `peak_limit` stage at the end of every preset | `--set peak_plr_db=14` (default); `off` disables it |
 | Reverberant room | No reliable fix in this chain; prefer another take or a closer mic | |
 
 ## Default chain: dialogue
@@ -91,7 +92,8 @@ equalizer=f=250:t=q:w=1.0:g=-2,
 equalizer=f=3500:t=q:w=1.2:g=2.5,
 deesser=i=0.4:m=0.5:f=1.0:s=o,
 agate=threshold=-45dB:ratio=3:range=0.5:knee=6:attack=5:release=50:detection=rms,
-acompressor=threshold=-14dB:ratio=2:attack=10:release=150:makeup=1:knee=6
+acompressor=threshold=-14dB:ratio=2:attack=10:release=150:makeup=1:knee=6,
+peak_limit: aresample=192000,alimiter=limit=<loudness + 14 dB>:attack=3:release=50:level=false:asc=0,aresample=48000
 ```
 
 The `agate` here is a downward expander, not a gate: 3:1 under -45 dBFS with a 6 dB soft knee and at most 6 dB of reduction. Its fast release is what lets it work in the 50 to 200 ms gaps of a tight cut; at 250 ms it never engages. Every number is a param in `presets/dialogue.json`.
@@ -113,6 +115,7 @@ Preset format (JSON or YAML): `params` holds defaults; `stages` is a list of ffm
 - `{"deepfilter": {"atten_lim_db": "{df_atten_db}", "post_filter": false}}`
 - `{"afftdn_profile": {"nr": "{afftdn_nr}", "nf": "{afftdn_nf}", "room_tone": "{room_tone}"}}`: the room tone (`file` or `file@start:end`, at least 0.2 s) is prepended to the whole chain, afftdn samples its profile from it, and it is cut off again at the end.
 - `{"hum_notch": {"fundamental_hz": 50, "harmonics": 4, "q": 20, "gain_db": -30}}`
+- `{"peak_limit": {"plr_db": "{peak_plr_db}", "attack_ms": "{peak_attack_ms}", "release_ms": "{peak_release_ms}"}}`: measures the stage input's integrated loudness, limits at loudness + `plr_db` with 4x oversampling, re-measures the true peak and lowers the ceiling by the overshoot (up to 3 passes, 0.2 dB tolerance). `plr_db` `off` or `none` skips the stage. Each pass is listed in the report under `compensated_latency_samples`.
 
 Copy a preset to the work folder to experiment and pass it by path.
 
@@ -127,6 +130,7 @@ Use the official prebuilt `deep-filter` binary from the DeepFilterNet GitHub rel
 | Length | `process_voice.py` report `gates.length` | output samples equal input samples; input samples equal the EDL audio total |
 | Alignment | `gates.alignment` | cross-correlation lag 0 against the input (also check 3 s sections if the cut changed) |
 | Floor | `gates.floor` | `floor_at_minus14_lufs_dbfs.output` at or below `.input` |
+| Peaks | report `output.true_peak_dbtp - output.lufs_i` | at most `peak_plr_db` + 0.2 dB (14.2 by default) |
 | Words level | `gates.words` (with `--words`) | no word more than 1 dB quieter than in `tone-only` with the same per-clip settings |
 | Musical noise | `ab_render.py` `pause_kurtosis` | within about 0.15 of the source; tracking afftdn measured +1.8 to +1.9 on raw clips |
 | Splices | `check_splices.py` | no curvature spike over 12 dB, no 10 ms level more than 6 dB under the file's room-tone floor within 60 ms of a splice, no peak above -25 dBFS (a word on the splice is a cut problem) |

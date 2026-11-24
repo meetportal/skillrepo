@@ -93,7 +93,7 @@ def recommend(report):
     if report["hard_clipped_samples"] > 0:
         advice.append({"issue": "clipping", "evidence": f"{report['hard_clipped_samples']} samples at full scale", "action": "add adeclip as the first stage and flag the take for a reshoot"})
     if report["true_peak_dbtp"] is not None and report["true_peak_dbtp"] > -1.0:
-        advice.append({"issue": "hot transient", "evidence": f"true peak {report['true_peak_dbtp']} dBTP", "action": "nothing in the voice chain; the master limiter handles it"})
+        advice.append({"issue": "hot transient", "evidence": f"true peak {report['true_peak_dbtp']} dBTP", "action": "the peak_limit stage at the end of every preset handles it"})
     if report.get("stereo_difference_rms_dbfs") is not None and report["stereo_difference_rms_dbfs"] < -50:
         advice.append({"issue": "dual mono", "evidence": f"L-R difference {report['stereo_difference_rms_dbfs']} dBFS", "action": "downmix by averaging: -af pan=mono|c0=0.5*c0+0.5*c1 (never -ac 1, which sums to +3 dB on float output)"})
     return advice, params

@@ -1,6 +1,6 @@
 {
   "name": "dialogue",
-  "description": "Default for a close mic in a quiet room: 80 Hz high-pass, low-mid cut, presence lift, light high-split de-ess, soft downward expander under -45 dBFS (breaths and room tone between words, at most 6 dB), 2:1 compression from -14 dB. No denoiser, so no musical noise.",
+  "description": "Default for a close mic in a quiet room: 80 Hz high-pass, low-mid cut, presence lift, light high-split de-ess, soft downward expander under -45 dBFS (breaths and room tone between words, at most 6 dB), 2:1 compression from -14 dB. No denoiser, so no musical noise. Ends with a 4x oversampled look-ahead peak limiter that holds true peak 14 dB above the mono voice loudness (11 dB once the mix plays it as dual mono).",
   "params": {
     "highpass_hz": 80,
     "lowmid_hz": 250,
@@ -14,7 +14,10 @@
     "expander_threshold_db": -45,
     "expander_ratio": 3,
     "expander_range": 0.5,
-    "expander_release_ms": 50
+    "expander_release_ms": 50,
+    "peak_plr_db": 14,
+    "peak_attack_ms": 3,
+    "peak_release_ms": 50
   },
   "stages": [
     "highpass=f={highpass_hz}:poles=2",
@@ -22,6 +25,13 @@
     "equalizer=f={presence_hz}:t=q:w=1.2:g={presence_gain_db}",
     "deesser=i={deess_i}:m=0.5:f={deess_f}:s=o",
     "agate=threshold={expander_threshold_db}dB:ratio={expander_ratio}:range={expander_range}:knee=6:attack=5:release={expander_release_ms}:detection=rms",
-    "acompressor=threshold={comp_threshold_db}dB:ratio={comp_ratio}:attack=10:release=150:makeup=1:knee=6"
+    "acompressor=threshold={comp_threshold_db}dB:ratio={comp_ratio}:attack=10:release=150:makeup=1:knee=6",
+    {
+      "peak_limit": {
+        "plr_db": "{peak_plr_db}",
+        "attack_ms": "{peak_attack_ms}",
+        "release_ms": "{peak_release_ms}"
+      }
+    }
   ]
 }

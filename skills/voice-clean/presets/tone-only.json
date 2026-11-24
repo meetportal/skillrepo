@@ -1,6 +1,6 @@
 {
   "name": "tone-only",
-  "description": "High-pass, EQ, de-ess and the dialogue compressor with no denoiser and no expander. The reference for log-spectral distance and for the per-word level gate.",
+  "description": "High-pass, EQ, de-ess and the dialogue compressor with no denoiser and no expander. The reference for log-spectral distance and for the per-word level gate. Ends with a 4x oversampled look-ahead peak limiter that holds true peak 14 dB above the mono voice loudness (11 dB once the mix plays it as dual mono).",
   "params": {
     "highpass_hz": 80,
     "lowmid_hz": 250,
@@ -10,13 +10,23 @@
     "deess_i": 0.4,
     "deess_f": 1.0,
     "comp_threshold_db": -14,
-    "comp_ratio": 2
+    "comp_ratio": 2,
+    "peak_plr_db": 14,
+    "peak_attack_ms": 3,
+    "peak_release_ms": 50
   },
   "stages": [
     "highpass=f={highpass_hz}:poles=2",
     "equalizer=f={lowmid_hz}:t=q:w=1.0:g={lowmid_gain_db}",
     "equalizer=f={presence_hz}:t=q:w=1.2:g={presence_gain_db}",
     "deesser=i={deess_i}:m=0.5:f={deess_f}:s=o",
-    "acompressor=threshold={comp_threshold_db}dB:ratio={comp_ratio}:attack=10:release=150:makeup=1:knee=6"
+    "acompressor=threshold={comp_threshold_db}dB:ratio={comp_ratio}:attack=10:release=150:makeup=1:knee=6",
+    {
+      "peak_limit": {
+        "plr_db": "{peak_plr_db}",
+        "attack_ms": "{peak_attack_ms}",
+        "release_ms": "{peak_release_ms}"
+      }
+    }
   ]
 }

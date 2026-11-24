@@ -348,6 +348,10 @@ def group_stages(stages):
             groups.append(("deepfilter", stage["deepfilter"] or {}))
         elif isinstance(stage, dict) and "afftdn_profile" in stage:
             groups.append(("afftdn_profile", stage["afftdn_profile"] or {}))
+        elif isinstance(stage, dict) and "peak_limit" in stage:
+            options = stage["peak_limit"] or {}
+            if str(options.get("plr_db", "")).lower() not in ("", "off", "none"):
+                groups.append(("peak_limit", options))
         else:
             raise SystemExit(f"unknown stage: {stage}")
     return groups
@@ -418,6 +422,40 @@ def afftdn_profile_graph(options, lead_s):
     return f"asendcmd=c='0.020 afftdn sn start;{lead_s - 0.02:.3f} afftdn sn stop',afftdn={settings}tn=0"
 
 
+PEAK_OVERSAMPLE = 4
+PEAK_TOLERANCE_DB = 0.2
+PEAK_PASSES = 3
+
+
+def peak_limit_graph(limit_dbfs, options):
+    attack = float(options.get("attack_ms", 3))
+    release = float(options.get("release_ms", 50))
+    return (f"aresample={SAMPLE_RATE * PEAK_OVERSAMPLE},"
+            f"alimiter=limit={10 ** (limit_dbfs / 20):.6f}:attack={attack:g}:release={release:g}:level=false:asc=0,"
+            f"aresample={SAMPLE_RATE}")
+
+
+def run_peak_limit(stage_input, stage_output, options, info):
+    target_plr = float(options["plr_db"])
+    loudness = ebur128(stage_input)
+    if loudness["lufs_i"] is None or loudness["true_peak_dbtp"] is None:
+        shutil.copyfile(stage_input, stage_output)
+        return
+    limit = loudness["lufs_i"] + target_plr
+    passes = []
+    for _ in range(PEAK_PASSES):
+        run_ffmpeg(["-v", "error", "-y", "-i", str(stage_input), "-af", peak_limit_graph(limit, options),
+                    "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_f32le", str(stage_output)])
+        result = ebur128(stage_output)
+        plr = result["true_peak_dbtp"] - result["lufs_i"]
+        passes.append({"limit_dbfs": round(limit, 2), "lufs_i": result["lufs_i"], "true_peak_dbtp": result["true_peak_dbtp"], "plr_db": round(plr, 2)})
+        if plr <= target_plr + PEAK_TOLERANCE_DB:
+            break
+        limit -= plr - target_plr
+    info.update({"target_plr_db": target_plr, "input_lufs_i": loudness["lufs_i"], "input_true_peak_dbtp": loudness["true_peak_dbtp"],
+                 "input_plr_db": round(loudness["true_peak_dbtp"] - loudness["lufs_i"], 2), "passes": passes})
+
+
 def apply_chain(input_path, output_path, stages, deep_filter_bin=None, subtype="FLOAT", latencies=None):
     source = decode(input_path)
     pad = int(SAMPLE_RATE * LATENCY_PAD_S)
@@ -430,8 +468,11 @@ def apply_chain(input_path, output_path, stages, deep_filter_bin=None, subtype="
             stage_input = Path(workdir) / f"stage_{index}_in.wav"
             stage_output = Path(workdir) / f"stage_{index}_out.wav"
             write_wav(stage_input, np.concatenate([current_samples, np.zeros(pad)]))
+            info = {}
             if kind == "deepfilter":
                 run_deep_filter(stage_input, stage_output, payload, find_deep_filter(deep_filter_bin), workdir)
+            elif kind == "peak_limit":
+                run_peak_limit(stage_input, stage_output, payload, info)
             else:
                 graph = ",".join(payload) if kind == "ffmpeg" else afftdn_profile_graph(payload, lead / SAMPLE_RATE)
                 run_ffmpeg(["-v", "error", "-y", "-i", str(stage_input), "-af", graph,
@@ -439,7 +480,7 @@ def apply_chain(input_path, output_path, stages, deep_filter_bin=None, subtype="
             processed = decode(stage_output)
             delay = -alignment_lag_samples(current_samples, processed, int(SAMPLE_RATE * MAX_LATENCY_S))
             if latencies is not None:
-                latencies.append({"stage": payload if kind == "ffmpeg" else {kind: payload}, "latency_samples": delay})
+                latencies.append({"stage": payload if kind == "ffmpeg" else {kind: payload}, "latency_samples": delay, **info})
             current_samples = fit_length(processed[max(delay, 0):], len(current_samples))
     current_samples = current_samples[lead:]
     write_wav(output_path, current_samples, subtype=subtype)
