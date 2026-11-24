@@ -4,7 +4,7 @@ import { colors, fontFamilies, layout, surface } from "../../theme";
 import { timeSchema, toneSchema } from "../../lib/beatSchemas";
 import type { BeatProps } from "../../types";
 import { entranceProgress, exitProgress, toneColor, zones as layoutZones, type Box } from "../ui";
-import { arrival, arrivalTransform, hexAlpha, secToFrame } from "./mistake2/shared";
+import { arrival, arrivalTransform, hexAlpha, panelStyle, secToFrame, sheenStyle } from "./mistake2/shared";
 
 export const schema = z.object({
   label: z.string().min(1),
@@ -16,6 +16,7 @@ export const schema = z.object({
   flatlineX: z.number().min(0.1).max(0.9).default(0.36),
   flatRushFactor: z.number().min(1).max(6).default(3),
   band: z.object({ x0: z.number(), x1: z.number(), y0: z.number(), y1: z.number() }).optional(),
+  card: z.boolean().default(false),
 });
 
 export type EcgFlatlineProps = z.infer<typeof schema>;
@@ -33,10 +34,35 @@ const ecgShape = (u: number) =>
 
 const positiveMod = (value: number, modulus: number) => ((value % modulus) + modulus) % modulus;
 
+const cardInsetPx = 40;
+
+const geometryFor = (band: Box, card: boolean) => {
+  const height = band.y1 - band.y0;
+  if (card) {
+    return {
+      traceX0: band.x0 + cardInsetPx,
+      traceW: band.x1 - band.x0 - 2 * cardInsetPx,
+      amplitude: Math.min(250, height * 0.32),
+      baseY: Math.round(band.y0 + height * 0.74),
+      labelY: band.y0 + 30,
+      gridTop: band.y0 + 112,
+      gridBottom: band.y1 - 18,
+    };
+  }
+  return {
+    traceX0: band.x0,
+    traceW: band.x1 - band.x0,
+    amplitude: Math.min(250, height * 0.36),
+    baseY: Math.round(band.y0 + height * 0.66),
+    labelY: band.y0 + 70,
+    gridTop: band.y0 + 150,
+    gridBottom: band.y1 - 20,
+  };
+};
+
 const EcgFlatline = ({ props, frame, durationInFrames, fps }: BeatProps<EcgFlatlineProps>) => {
-  const band: Box = props.band ?? layoutZones.takeoverBand;
-  const traceX0 = band.x0;
-  const traceW = band.x1 - band.x0;
+  const band: Box = props.band ?? (props.card ? layoutZones.card : layoutZones.takeoverBand);
+  const { traceX0, traceW, amplitude, baseY, labelY, gridTop, gridBottom } = geometryFor(band, props.card);
   const flatF = secToFrame(props.flatlineAt, fps);
   const speed = traceW / props.sweepSec;
   const periodPx = speed * props.beatSec;
@@ -48,9 +74,6 @@ const EcgFlatline = ({ props, frame, durationInFrames, fps }: BeatProps<EcgFlatl
       : Math.min(sweepBaseAtFlat + traceW, flatS + ((frame - flatF) / fps) * speed * props.flatRushFactor);
   const lastPeakS = flatS - 0.58 * periodPx;
   const phaseOffset = rPhase * periodPx - lastPeakS;
-  const amplitude = Math.min(250, (band.y1 - band.y0) * 0.36);
-  const baseY = Math.round(band.y0 + (band.y1 - band.y0) * 0.66);
-  const labelY = band.y0 + 70;
   const gapPx = 46;
 
   const sampleY = (s: number) => (s >= flatS ? 0 : ecgShape(positiveMod(s + phaseOffset, periodPx) / periodPx));
@@ -79,6 +102,7 @@ const EcgFlatline = ({ props, frame, durationInFrames, fps }: BeatProps<EcgFlatl
   const bgOut = exitProgress(frame, durationInFrames);
   const contentOut = exitProgress(frame, durationInFrames - 2, 3);
   const content = arrival(frame, durationInFrames, { from: "up", exit: false });
+  const panel = arrival(frame, durationInFrames, { from: "up" });
   const traceOpacity = interpolate(entranceProgress(frame, 0, 6), [0, 0.6], [0, 1], clamp) * (1 - contentOut);
 
   const sinceBeat = positiveMod(head + phaseOffset - rPhase * periodPx, periodPx) / speed;
@@ -86,8 +110,6 @@ const EcgFlatline = ({ props, frame, durationInFrames, fps }: BeatProps<EcgFlatl
   const headY = baseY - sampleY(head) * amplitude;
 
   const gridStep = 44;
-  const gridTop = band.y0 + 150;
-  const gridBottom = band.y1 - 20;
 
   const previousFade = interpolate(frame, [flatF, flatF + 6], [1, 0], clamp);
   const traceLayer = (color: string, opacity: number) => (
@@ -115,17 +137,43 @@ const EcgFlatline = ({ props, frame, durationInFrames, fps }: BeatProps<EcgFlatl
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
-      <AbsoluteFill style={{ background: surface.takeoverGradient, opacity: bgIn * (1 - bgOut) }} />
-      <AbsoluteFill
-        style={{
-          opacity: bgIn * (1 - bgOut),
-          background: `radial-gradient(70% 34% at 50% ${Math.round((baseY / layout.height) * 100)}%, ${hexAlpha(liveColor, 0.12 * (1 - dead))} 0%, rgba(0,0,0,0) 70%), radial-gradient(70% 34% at 50% ${Math.round((baseY / layout.height) * 100)}%, ${hexAlpha(deadColor, 0.16 * dead)} 0%, rgba(0,0,0,0) 70%)`,
-        }}
-      />
+      {props.card ? (
+        <div
+          style={{
+            ...panelStyle,
+            position: "absolute",
+            left: band.x0,
+            top: band.y0,
+            width: band.x1 - band.x0,
+            height: band.y1 - band.y0,
+            opacity: panel.opacity,
+            transform: arrivalTransform(panel),
+            background: `radial-gradient(80% 60% at 50% ${Math.round(((baseY - band.y0) / (band.y1 - band.y0)) * 100)}%, ${hexAlpha(liveColor, 0.12 * (1 - dead))} 0%, rgba(0,0,0,0) 70%), radial-gradient(80% 60% at 50% ${Math.round(((baseY - band.y0) / (band.y1 - band.y0)) * 100)}%, ${hexAlpha(deadColor, 0.16 * dead)} 0%, rgba(0,0,0,0) 70%), ${panelStyle.background}`,
+          }}
+        >
+          <div style={sheenStyle} />
+        </div>
+      ) : (
+        <>
+          <AbsoluteFill style={{ background: surface.takeoverGradient, opacity: bgIn * (1 - bgOut) }} />
+          <AbsoluteFill
+            style={{
+              opacity: bgIn * (1 - bgOut),
+              background: `radial-gradient(70% 34% at 50% ${Math.round((baseY / layout.height) * 100)}%, ${hexAlpha(liveColor, 0.12 * (1 - dead))} 0%, rgba(0,0,0,0) 70%), radial-gradient(70% 34% at 50% ${Math.round((baseY / layout.height) * 100)}%, ${hexAlpha(deadColor, 0.16 * dead)} 0%, rgba(0,0,0,0) 70%)`,
+            }}
+          />
+        </>
+      )}
       <svg
         width={layout.width}
         height={layout.height}
-        style={{ position: "absolute", left: 0, top: 0, opacity: traceOpacity }}
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          opacity: props.card ? panel.opacity * (1 - contentOut) : traceOpacity,
+          transform: props.card ? arrivalTransform(panel) : undefined,
+        }}
       >
         <defs>
           <linearGradient id="ecg-grid-fade" x1="0" x2="1" y1="0" y2="0">
@@ -177,8 +225,8 @@ const EcgFlatline = ({ props, frame, durationInFrames, fps }: BeatProps<EcgFlatl
           justifyContent: "center",
           alignItems: "center",
           gap: 26,
-          opacity: content.opacity * (1 - contentOut),
-          transform: arrivalTransform(content),
+          opacity: (props.card ? panel.opacity : content.opacity) * (1 - contentOut),
+          transform: arrivalTransform(props.card ? panel : content),
         }}
       >
         <div style={{ position: "relative", width: 30, height: 30, flexShrink: 0 }}>

@@ -1,4 +1,5 @@
 import { Composition, type CalculateMetadataFunction } from "remotion";
+import { CaptionBoxes, calculateCaptionBoxes, type CaptionBoxesProps } from "./CaptionBoxes";
 import { Reel } from "./Reel";
 import { layout } from "./theme";
 import { reelPropsSchema, type ReelProps } from "./types";
@@ -21,15 +22,27 @@ const calculateMetadata: CalculateMetadataFunction<ReelProps> = ({ props }) => (
 });
 
 export const RemotionRoot = () => (
-  <Composition
-    id="Reel"
-    component={Reel}
-    schema={reelPropsSchema}
-    width={layout.width}
-    height={layout.height}
-    fps={defaultProps.fps}
-    durationInFrames={Math.round(defaultProps.durationSec * defaultProps.fps)}
-    defaultProps={defaultProps}
-    calculateMetadata={calculateMetadata}
-  />
+  <>
+    <Composition
+      id="Reel"
+      component={Reel}
+      schema={reelPropsSchema}
+      width={layout.width}
+      height={layout.height}
+      fps={defaultProps.fps}
+      durationInFrames={Math.round(defaultProps.durationSec * defaultProps.fps)}
+      defaultProps={defaultProps}
+      calculateMetadata={calculateMetadata}
+    />
+    <Composition
+      id="CaptionBoxes"
+      component={CaptionBoxes}
+      width={layout.width}
+      height={layout.height}
+      fps={defaultProps.fps}
+      durationInFrames={1}
+      defaultProps={defaultProps as CaptionBoxesProps}
+      calculateMetadata={calculateCaptionBoxes}
+    />
+  </>
 );

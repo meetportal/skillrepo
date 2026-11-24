@@ -8,15 +8,20 @@ import type { AccentSpec, CaptionMode, CaptionModeName, CaptionWord } from "../t
 
 const wordGapEm = 0.26;
 
-const modeAt = (modes: CaptionMode[], timeSec: number): CaptionModeName => {
+const modeFrames = (mode: CaptionMode, fps: number) => ({ first: Math.round(mode.from * fps), end: Math.round(mode.to * fps) });
+
+export const modeAtFrame = (modes: CaptionMode[], frame: number, fps: number): CaptionModeName => {
   let found: CaptionModeName = "talk";
   for (const mode of modes) {
-    if (timeSec >= mode.from && timeSec < mode.to) {
+    const { first, end } = modeFrames(mode, fps);
+    if (frame >= first && frame < end) {
       found = mode.mode;
     }
   }
   return found;
 };
+
+const holdBreakingModes: CaptionModeName[] = ["takeover", "hidden"];
 
 const pageUsesCardStage = (modes: CaptionMode[], startSec: number, endSec: number) =>
   modes.some((mode) => mode.mode === "card" && mode.from < endSec && mode.to > startSec);
@@ -73,14 +78,75 @@ const pageScale = (page: CaptionPage) => {
 
 type TimedPage = CaptionPage & { firstFrame: number; endFrame: number };
 
-const timePages = (pages: CaptionPage[], fps: number, totalFrames: number): TimedPage[] => {
+const timePages = (pages: CaptionPage[], modes: CaptionMode[], fps: number, totalFrames: number): TimedPage[] => {
   const firstFrames = pages.map((page) => Math.max(0, Math.round(page.start * fps) - captionRules.leadFrames));
+  const holdBreaks = modes
+    .filter((mode) => holdBreakingModes.includes(mode.mode))
+    .map((mode) => modeFrames(mode, fps).first)
+    .sort((a, b) => a - b);
   return pages.map((page, index) => {
+    const firstFrame = firstFrames[index]!;
     const nextFirst = firstFrames[index + 1] ?? totalFrames;
     const holdEnd = Math.round((page.end + captionRules.holdAfterLastWordSec) * fps);
-    return { ...page, firstFrame: firstFrames[index]!, endFrame: Math.min(nextFirst, holdEnd, totalFrames) };
+    const spokenEnd = Math.max(firstFrame + 1, Math.round(page.end * fps));
+    const holdBreak = holdBreaks.find((breakFrame) => breakFrame >= spokenEnd) ?? totalFrames;
+    return { ...page, firstFrame, endFrame: Math.min(nextFirst, holdEnd, holdBreak, totalFrames) };
   });
 };
+
+const pageCenterY = (modes: CaptionMode[], page: TimedPage, fps: number) =>
+  pageUsesCardStage(modes, page.firstFrame / fps, page.endFrame / fps) ? layout.captionY.card : layout.captionY.talk;
+
+export type CaptionPageLayout = {
+  text: string;
+  firstFrame: number;
+  endFrame: number;
+  visibleFrames: number[];
+  scale: number;
+  centerY: number;
+  bbox: [number, number, number, number];
+};
+
+const lineHeightPx = (line: PageToken[], scale: number) =>
+  Math.max(...line.map((token) => (token.accent ? accentFont(scale).fontSize : baseFont(scale).fontSize))) * type.caption.lineHeight;
+
+export const layoutCaptionPages = ({
+  captions,
+  accents,
+  modes,
+  hookEndSec,
+  fps,
+  totalFrames,
+}: {
+  captions: CaptionWord[];
+  accents: AccentSpec[];
+  modes: CaptionMode[];
+  hookEndSec: number;
+  fps: number;
+  totalFrames: number;
+}): CaptionPageLayout[] =>
+  timePages(buildCaptionPages(captions, accents, hookEndSec), modes, fps, totalFrames).map((page) => {
+    const scale = pageScale(page);
+    const centerY = pageCenterY(modes, page, fps);
+    const widths = page.lines.map((line) => lineWidth(line) * scale);
+    const height = page.lines.reduce((sum, line) => sum + lineHeightPx(line, scale), 0);
+    const half = Math.max(...widths) / 2;
+    const visibleFrames: number[] = [];
+    for (let frame = page.firstFrame; frame < page.endFrame; frame++) {
+      if (modeAtFrame(modes, frame, fps) !== "hidden") {
+        visibleFrames.push(frame);
+      }
+    }
+    return {
+      text: page.tokens.map((token) => token.text).join(" "),
+      firstFrame: page.firstFrame,
+      endFrame: page.endFrame,
+      visibleFrames,
+      scale,
+      centerY,
+      bbox: [captionRules.centerX - half, centerY - height / 2, captionRules.centerX + half, centerY + height / 2],
+    };
+  });
 
 const partStyle = (accent: boolean, scale: number) =>
   accent
@@ -148,12 +214,12 @@ export const Captions = ({
   }, [fontsLoaded, layoutHandle]);
 
   const pages = useMemo(
-    () => timePages(buildCaptionPages(captions, accents, hookEndSec), fps, durationInFrames),
-    [captions, accents, hookEndSec, fps, durationInFrames],
+    () => timePages(buildCaptionPages(captions, accents, hookEndSec), modes, fps, durationInFrames),
+    [captions, accents, modes, hookEndSec, fps, durationInFrames],
   );
   const scales = useMemo(() => (fontsLoaded ? pages.map(pageScale) : null), [pages, fontsLoaded]);
 
-  if (!scales || modeAt(modes, frame / fps) === "hidden") {
+  if (!scales || modeAtFrame(modes, frame, fps) === "hidden") {
     return null;
   }
   const pageIndex = pages.findIndex((page) => frame >= page.firstFrame && frame < page.endFrame);
@@ -162,9 +228,7 @@ export const Captions = ({
     return null;
   }
   const scale = scales[pageIndex] ?? 1;
-  const centerY = pageUsesCardStage(modes, page.firstFrame / fps, page.endFrame / fps)
-    ? layout.captionY.card
-    : layout.captionY.talk;
+  const centerY = pageCenterY(modes, page, fps);
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>

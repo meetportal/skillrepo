@@ -43,7 +43,7 @@ export const TopLogo = ({ topLogo, beats }: { topLogo: unknown; beats: Beat[] })
   if (!window) {
     return null;
   }
-  const enter = interpolate(frame, [window.start, window.start + settings.enterFrames], [0, 1], { ...clamp, easing: motion.ease });
+  const enter = settings.enterFrames === 0 ? 1 : interpolate(frame, [window.start, window.start + settings.enterFrames], [0, 1], { ...clamp, easing: motion.ease });
   const exit = window.end >= durationInFrames ? 0 : interpolate(frame, [window.end - settings.exitFrames, window.end], [0, 1], { ...clamp, easing: motion.exitEase });
   const opacity = Math.min(interpolate(enter, [0, 0.6], [0, 1], clamp), 1 - exit);
   if (opacity <= 0) {

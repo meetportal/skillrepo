@@ -6,16 +6,18 @@ usage() {
 usage:
   render.sh --props props.json --public-dir DIR --out out/gfx.mp4 [--concurrency 4] [--frames 0-99] [--crf 14]
   render.sh --props props.json --public-dir DIR --still 0.0,1.0,7.3 --out out/stills [--image-format png]
+  render.sh --props props.json --public-dir DIR --caption-boxes --out qa/captions_bbox.json
 
 Brand: $REEL_BRAND (a brand folder with brand.json and assets/) or the bundled mailinfra-brand.
 A full render records the A-roll md5 before and after (<out>.aroll.md5) and fails if the
 A-roll changed during the render or the frame count differs from props durationSec * fps.
+--caption-boxes writes the caption page boxes (reel-qa captions_bbox.json format) instead of rendering.
 EOF
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="$script_dir/../remotion"
-props="" public_dir="" out="" stills="" concurrency=4 frames="" crf=14 image_format=png composition=Reel
+props="" public_dir="" out="" stills="" caption_boxes="" concurrency=4 frames="" crf=14 image_format=png composition=Reel
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --public-dir) public_dir="$2"; shift 2 ;;
     --out) out="$2"; shift 2 ;;
     --still) stills="$2"; shift 2 ;;
+    --caption-boxes) caption_boxes=1; shift ;;
     --concurrency) concurrency="$2"; shift 2 ;;
     --frames) frames="$2"; shift 2 ;;
     --crf) crf="$2"; shift 2 ;;
@@ -57,6 +60,11 @@ aroll_path=""
 
 cd "$project_dir"
 common=(--props="$props" --public-dir="$public_dir" --log=warn)
+
+if [[ -n "$caption_boxes" ]]; then
+  node "$script_dir/caption_boxes.mjs" --props "$props" --public-dir "$public_dir" --out "$out"
+  exit 0
+fi
 
 if [[ -n "$stills" ]]; then
   node "$script_dir/stills.mjs" --props "$props" --public-dir "$public_dir" --out "$out" --times "$stills" --image-format "$image_format" --composition "$composition"

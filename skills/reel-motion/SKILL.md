@@ -11,14 +11,15 @@ Stage 2 of the reel pipeline. Input: a graded A-roll (video only, tv range, bt70
 
 ```
 remotion/                        Remotion 4.0.542 project (all @remotion/* pinned to the same version, React 19)
-  src/Root.tsx                   composition "Reel", 1080x1920, fps and duration from props (calculateMetadata)
+  src/Root.tsx                   composition "Reel", 1080x1920, fps and duration from props (calculateMetadata), plus "CaptionBoxes"
+  src/CaptionBoxes.tsx           lays out the caption pages in the browser (real fonts) and returns their boxes as metadata props
   src/types.ts                   zod schema of the props (ReelProps), BeatContext, BeatProps<P>
   src/theme.ts                   colour, type, zone, surface, motion, camera and caption tokens
   src/lib/brand.ts               the brand file (alias target) and brandAsset()/brandLogo() for public assets
   src/fonts.ts                   local fonts via @remotion/fonts + load assertion (render fails if a face is missing)
   src/Reel.tsx                   Camera -> BeatLayer -> TopLogo -> Captions (captions always last)
   src/components/Camera.tsx      OffthreadVideo with scale/translate keys, origin at the face centre
-  src/components/Captions.tsx    caption pages and word reveal
+  src/components/Captions.tsx    caption pages, word reveal and layoutCaptionPages() (the boxes the renderer draws)
   src/components/BeatLayer.tsx   one Sequence per beat; parses props with the component's schema
   src/components/TopLogo.tsx     persistent top-center brand mark (props `topLogo`)
   src/components/registry.ts     component name -> defineBeat(schema, Component)
@@ -36,6 +37,7 @@ scripts/
   prepare_public.sh              copies the brand into <public-dir>/.reel-motion-brand/
   render.sh                      stills (one bundle for all) or a full render with the colour and codec flags
   stills.mjs                     the stills renderer used by render.sh --still
+  caption_boxes.mjs              caption page boxes for reel-qa (render.sh --caption-boxes)
   brand-webpack.mjs              REEL_BRAND alias shared by remotion.config.ts and stills.mjs
   test_captions.sh               page-builder unit test on a synthetic fixture
 ```
@@ -81,6 +83,8 @@ The brand is a folder with `brand.json` and `assets/fonts`, `assets/logos` (see 
 4. Stills first: `bash scripts/render.sh --props props.json --public-dir <dir> --still 0.0,1.0,7.3 --out <dir>/stills` (one bundle for all stills). Look at them.
 5. Full pass: `bash scripts/render.sh --props props.json --public-dir <dir> --out <dir>/out/gfx.mp4 --concurrency 4`. It always passes `--muted --color-space=bt709 --crf=14 --x264-preset=medium --pixel-format=yuv420p`, records the A-roll md5 in `<out>.aroll.md5`, and fails if the A-roll changed during the render or the frame count differs from `round(durationSec * fps)`. Re-run steps 1 to 3 whenever `cues.json` or `words.out.json` change; a render from stale props drifts after the first changed cut.
 
+6. Caption boxes for QA: `bash scripts/render.sh --props props.json --public-dir <dir> --caption-boxes --out <dir>/qa/captions_bbox.json`. It runs the `CaptionBoxes` composition, which builds and times the pages with the same code as `Captions`, measures every line with the loaded brand fonts and returns one box per page; nothing is rendered (a few seconds). Each page lists `start`/`end` (output seconds of its first and last visible frame, frames in `hidden` windows excluded), `bbox` `[x0, y0, x1, y1]` (widest line by the summed line heights at the page's caption height), `firstFrame`, `endFrame`, `visibleFrameCount`, `scale` and `centerY`. Pages hidden for their whole life are left out. Re-export it whenever `props.json` changes; `reel-qa` reads it from `qa/captions_bbox.json`.
+
 The CLI symlinks the public dir into the bundle (no copy), so pointing `--public-dir` at the reel work folder is cheap.
 
 ## Top logo
@@ -108,14 +112,14 @@ The CLI symlinks the public dir into the bundle (no copy), so pointing `--public
 | `enabled` | `false` | draw the layer at all |
 | `logo` | `"white"` | brand logo key or asset path; always the white mark on footage and navy |
 | `widthPx` | brand `layout.topLogo.widthPx` (320) | 280 to 400 |
-| `centerY` | brand `layout.topLogo.centerY` (170) | vertical centre, kept inside y 120 to 220 |
+| `centerY` | brand `layout.topLogo.centerY` (170) | vertical centre, y 120 to the brand's `layout.topLogo.centerYMax` (280). Instagram's top UI covers about y 0 to 210: 250 puts a 320 px wordmark at about y 225 to 275, inside the safe box; then keep top graphics at y 300 or lower (the rail at x 70 to 290 can stay at y 236 beside a centred mark) |
 | `ranges` | `[]` (whole reel) | visible windows `{from, to}` in seconds; each one fades and slides in over `enterFrames` at `from` and fades out over `exitFrames` before `to` |
 | `hideDuring` | `["EndCard"]` | component names whose beat windows are cut out of the ranges (the logo fades out before the beat starts and back in after it ends) |
 | `slidePx` | 14 | downward slide of the entrance |
 | `shadow` | 1 | strength of the soft dark drop shadow (0 to 1) |
 | `scrim` | 0.22 | opacity of a soft dark radial glow behind the mark, so the white mark reads on bright walls (0 to switch off) |
 
-The logo must be fully in by 1.0 s (`build_props.py` fails otherwise): start the first range at 0 to 0.68 s. Keep the hook headline, progress rail and any other top graphic at y 236 or lower and look at stills where the hook, the rail and each takeover are on screen.
+The logo must be fully in by 1.0 s (`build_props.py` fails otherwise): start the first range at 0 to 0.68 s. `enterFrames: 0` with a range from 0 shows it fully on frame 0 (the feed thumbnail). Add `LogoPop` to `hideDuring` so the top mark fades out as the logo card pops instead of showing two logos. Keep the hook headline, progress rail and any other top graphic at y 236 or lower and look at stills where the hook, the rail and each takeover are on screen.
 
 `LogoPop` (`card` `cream` or `navy`; the logo defaults to `color` on cream and `white` on navy) animates the icon first and the wordmark after it, split at the brand's `logoMark.iconSplit` (`markSplit: null` pops the whole mark at once). `EndCard` uses the `color` mark (default `logoWidthPx` 640); its `handoff` takes the pop's `card`, `widthPx` and `centerY`, and a navy pop card fades to cream while the white mark crossfades to the colour mark.
 
@@ -149,7 +153,7 @@ Graphics never use the bottom 420 px or the right 130 px. Zones (`zones` in `the
 | Card | full frame | card zone | centre y 1060 (above the card, below the chin) |
 | Takeover | hidden, at most 1.5 s (2.5 s once, only to cover a defect) | full frame, navy gradient | y 1180 over a band the graphic leaves empty, or mode `hidden` when the graphic spells the same words |
 
-`captionModes` drive the caption position; a page that overlaps any `card` window sits at the card height for its whole life (no mid-page jumps). `hidden` suppresses captions frame by frame.
+`captionModes` drive the caption position; a page that overlaps any `card` window sits at the card height for its whole life (no mid-page jumps). `hidden` suppresses captions frame by frame. Mode windows are applied on frames with the same rounding as the beats (`round(from * fps)` to `round(to * fps)`), so a takeover or hidden beat and its caption mode start on the same frame. A page whose last word has finished never holds into a `takeover` or `hidden` window: its hold ends on the frame that window starts (a page still being spoken when a takeover starts stays, at y 1180).
 
 ## Captions
 
@@ -170,7 +174,7 @@ Graphics never use the bottom 420 px or the right 130 px. Zones (`zones` in `the
 
 - One idea per beat, shown big, then gone. No permanent card stack.
 - No cutaway or takeover in the first second; the face and the hook headline own frame 0.
-- At least 2 s of face between takeovers.
+- At least 2 s of face between takeovers. When two takeovers come too close, turn one into a card: `EcgFlatline` takes `card: true` (beat mode `card`), which draws the trace and label on a navy panel in the card zone (or its `band`) instead of a full-frame background; timing props are unchanged.
 - No window over 4 s without a cut, scale change or graphic event.
 - Card text at least 44 px, numerals at least 140 px.
 

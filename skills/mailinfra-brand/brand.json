@@ -94,7 +94,7 @@
     "cardBox": {"x0": 70, "x1": 950, "y0": 1150, "y1": 1480},
     "captionY": {"talk": 1180, "takeover": 1180, "card": 1060},
     "rail": {"x": 70, "y": 236, "segmentW": 64, "segmentH": 10, "count": 3},
-    "topLogo": {"centerY": 170, "widthPx": 320, "x0": 70, "x1": 950, "y0": 120, "y1": 220}
+    "topLogo": {"centerY": 170, "centerYMax": 280, "widthPx": 320, "x0": 70, "x1": 950, "y0": 120, "y1": 220}
   },
   "cta": {
     "url": "mailinfra.co",
