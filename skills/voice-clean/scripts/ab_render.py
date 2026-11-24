@@ -18,8 +18,12 @@ from voicelib import (
     frame_db,
     level_masks,
     listen_points,
+    load_words,
     log_spectral_distance,
     mean_db,
+    pause_kurtosis,
+    pause_windows,
+    word_softening,
     parse_assignments,
     parse_window,
     resolve_stages,
@@ -32,7 +36,7 @@ from voicelib import (
 )
 
 COMPARE_LUFS = -14.0
-LISTEN_LUFS = -16.0
+LISTEN_LUFS = -23.0
 
 
 def source_masks(samples, noise_window):
@@ -43,6 +47,8 @@ def source_masks(samples, noise_window):
     masks["levels"] = levels
     gate_zone = (levels > masks["floor_p5_dbfs"] + 3) & (levels < masks["floor_p5_dbfs"] + 20)
     masks["gate_zone"] = gate_zone
+    masks["pause_windows"] = pause_windows(masks["pause"])
+    masks["low_level"] = (levels >= masks["floor_p5_dbfs"] + 6) & (levels < masks["floor_p5_dbfs"] + 20)
     return masks
 
 
@@ -85,11 +91,13 @@ def measure(samples, path, masks, reference_power=None, freqs_power=None):
         "speech_rms_dbfs": round(speech_rms, 1),
         "snr_db": round(speech_rms - pause_rms, 1),
         "pause_rms_at_minus14_lufs_dbfs": round(pause_rms + COMPARE_LUFS - loudness["lufs_i"], 1) if loudness["lufs_i"] is not None else None,
+        "low_level_rms_at_minus14_lufs_dbfs": round(mean_db(levels, masks["low_level"][:count]) + COMPARE_LUFS - loudness["lufs_i"], 1) if loudness["lufs_i"] is not None else None,
         "speech_band_balance_db": band_balance(freqs, power, speech),
         "sibilance_5k10k_vs_300_3k_db": band_ratio_db(freqs, power, speech, (5000, 10000), (300, 3000)),
         "presence_2k5_5k_vs_300_3k_db": band_ratio_db(freqs, power, speech, (2500, 5000), (300, 3000)),
         **pumping_metrics(levels, masks),
     }
+    result["pause_kurtosis"], result["pause_kurtosis_windows"] = pause_kurtosis(samples, masks["pause_windows"])
     if "noise" in masks:
         noise_rms = mean_db(levels, masks["noise"][:count])
         result["noise_window_rms_dbfs"] = round(noise_rms, 1)
@@ -143,7 +151,12 @@ def main():
     parser.add_argument("--spectrograms", action="store_true", help="write a spectrum png per output")
     parser.add_argument("--gate-pair", action="append", default=[], help="WITH:WITHOUT preset names that differ only by a gate; reports when and how hard the gate closes")
     parser.add_argument("--listen-copies", action="store_true", help=f"also write loudness-matched copies at {LISTEN_LUFS} LUFS for fair listening")
+    parser.add_argument("--words", help="word timings on the input timeline (json list with start/end in s, or startMs/endMs); with --reference, reports per-word RMS of each chain against the reference chain")
+    parser.add_argument("--word-limit-db", type=float, default=1.0, help="a word quieter than in the reference chain by more than this fails the word-level gate")
     args = parser.parse_args()
+    if args.words and len(args.input) != 1:
+        raise SystemExit("--words needs exactly one --input")
+    words = load_words(args.words) if args.words else None
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -164,11 +177,14 @@ def main():
         masks = source_masks(source, args.noise_window)
         source_result, _ = measure(source, source_path, masks)
         entry = {"source": source_result, "chains": {}, "listen": listen_points(source)}
+        print(f"{stem} source I {source_result['lufs_i']} floor@-14 {source_result['pause_rms_at_minus14_lufs_dbfs']} SNR {source_result['snr_db']} "
+              f"kurt {source_result['pause_kurtosis']} over {len(masks['pause_windows'])} pauses", flush=True)
         if args.spectrograms:
             source_result["spectrum_png"] = spectrum_png(source_path, out_dir / f"{stem}__source.png")
         if args.listen_copies:
             source_result["listen_wav"] = listen_copy(source_path, out_dir / f"{stem}__source.listen.wav", source_result["lufs_i"])
         reference_power = None
+        reference_samples = None
         for preset in ordered:
             names = set(preset["params"]) | {key for stage in preset["stages"] for key in re.findall(r"\{(\w+)\}", json.dumps(stage))}
             applied = {key: value for key, value in {**overrides, **per_clip.get(stem, {})}.items() if key in names}
@@ -180,6 +196,12 @@ def main():
             metrics, freqs_power = measure(processed, out_path, masks, reference_power)
             if args.reference and preset["name"] == args.reference:
                 reference_power = freqs_power[1]
+                reference_samples = processed
+            metrics["floor_vs_source_db"] = round(metrics["pause_rms_at_minus14_lufs_dbfs"] - source_result["pause_rms_at_minus14_lufs_dbfs"], 1)
+            metrics["floor_pass"] = metrics["floor_vs_source_db"] <= 0.0
+            metrics["low_level_vs_source_db"] = round(metrics["low_level_rms_at_minus14_lufs_dbfs"] - source_result["low_level_rms_at_minus14_lufs_dbfs"], 1)
+            if words and reference_samples is not None:
+                metrics["word_levels_vs_reference"] = word_softening(processed, reference_samples, words, args.word_limit_db)
             metrics["wav"] = str(out_path)
             metrics["overrides"] = applied
             metrics["compensated_latency_samples"] = [item["latency_samples"] for item in latencies]
@@ -192,7 +214,9 @@ def main():
                 f"{stem} {preset['name']:<22} I {metrics['lufs_i']:>6} floor@-14 {metrics['pause_rms_at_minus14_lufs_dbfs']:>6} "
                 f"SNR {metrics['snr_db']:>5} sib {metrics['sibilance_5k10k_vs_300_3k_db']:>5} "
                 f"LSD {metrics.get('speech_lsd_vs_reference_db', '-')!s:>5} depth {metrics['pause_depth_db']:>6} "
-                f"step {metrics['gate_zone_gain_step_db']!s:>5} spread {metrics['pause_level_spread_db']!s:>5}",
+                f"kurt {metrics['pause_kurtosis']!s:>5} vs-src {metrics['floor_vs_source_db']:>5} {'pass' if metrics['floor_pass'] else 'FAIL'} "
+                f"breaths vs-src {metrics['low_level_vs_source_db']:>5}"
+                + (f" words min {metrics['word_levels_vs_reference']['min_delta_db']} dB" if "word_levels_vs_reference" in metrics else ""),
                 flush=True,
             )
         outputs = {}

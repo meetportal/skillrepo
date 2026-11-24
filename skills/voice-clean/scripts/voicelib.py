@@ -257,7 +257,7 @@ def listen_points(samples, sample_rate=SAMPLE_RATE, count=5):
     points = []
     if len(speech_frames):
         onset = max(0.0, speech_frames[0] * FRAME_HOP_S - 0.3)
-        points.append({"t": round(onset, 2), "why": "first speech onset: denoiser and gate attack"})
+        points.append({"t": round(onset, 2), "why": "first speech onset: expander and denoiser attack"})
     if sibilants:
         points.append({"t": max(0.0, sibilants[0]["t"] - 0.5), "why": f"strongest sibilant at {sibilants[0]['t']} s: de-esser"})
     if plosives:
@@ -269,9 +269,9 @@ def listen_points(samples, sample_rate=SAMPLE_RATE, count=5):
     pause_runs = sorted(runs(inner, 15), key=lambda run: run[0] - run[1])
     if pause_runs:
         start, end = pause_runs[0]
-        points.append({"t": round(max(0.0, start * FRAME_HOP_S - 1.0), 2), "why": f"longest inner pause {start * FRAME_HOP_S:.2f}-{end * FRAME_HOP_S:.2f} s: gate pumping, floor"})
+        points.append({"t": round(max(0.0, start * FRAME_HOP_S - 1.0), 2), "why": f"longest inner pause {start * FRAME_HOP_S:.2f}-{end * FRAME_HOP_S:.2f} s: expander pumping, floor"})
     if len(speech_frames):
-        points.append({"t": round(max(0.0, speech_frames[-1] * FRAME_HOP_S - 1.0), 2), "why": "last phrase tail: gate release on decay"})
+        points.append({"t": round(max(0.0, speech_frames[-1] * FRAME_HOP_S - 1.0), 2), "why": "last phrase tail: expander release on the decay"})
     return points[:count]
 
 
@@ -346,6 +346,8 @@ def group_stages(stages):
                 groups.append(("ffmpeg", [stage]))
         elif isinstance(stage, dict) and "deepfilter" in stage:
             groups.append(("deepfilter", stage["deepfilter"] or {}))
+        elif isinstance(stage, dict) and "afftdn_profile" in stage:
+            groups.append(("afftdn_profile", stage["afftdn_profile"] or {}))
         else:
             raise SystemExit(f"unknown stage: {stage}")
     return groups
@@ -392,27 +394,135 @@ LATENCY_PAD_S = 0.25
 MAX_LATENCY_S = 0.1
 
 
+def room_tone_samples(reference):
+    found = re.match(r"^(.*)@(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$", str(reference))
+    path = found.group(1) if found else str(reference)
+    samples = decode(path)
+    if found:
+        start, end = float(found.group(2)), float(found.group(3))
+        samples = samples[int(start * SAMPLE_RATE):int(end * SAMPLE_RATE)]
+    if len(samples) < int(0.2 * SAMPLE_RATE):
+        raise SystemExit(f"room tone {reference} is shorter than 0.2 s; give a longer window (path@start:end)")
+    return samples
+
+
+def profile_room_tone(groups):
+    references = {payload["room_tone"] for kind, payload in groups if kind == "afftdn_profile"}
+    if len(references) > 1:
+        raise SystemExit("every afftdn_profile stage in one chain must use the same room_tone")
+    return room_tone_samples(references.pop()) if references else np.zeros(0)
+
+
+def afftdn_profile_graph(options, lead_s):
+    settings = "".join(f"{key}={value}:" for key, value in options.items() if key != "room_tone")
+    return f"asendcmd=c='0.020 afftdn sn start;{lead_s - 0.02:.3f} afftdn sn stop',afftdn={settings}tn=0"
+
+
 def apply_chain(input_path, output_path, stages, deep_filter_bin=None, subtype="FLOAT", latencies=None):
     source = decode(input_path)
     pad = int(SAMPLE_RATE * LATENCY_PAD_S)
-    current_samples = source
+    groups = group_stages(stages)
+    lead_in = profile_room_tone(groups)
+    lead = len(lead_in)
+    current_samples = np.concatenate([lead_in, source])
     with tempfile.TemporaryDirectory() as workdir:
-        for index, (kind, payload) in enumerate(group_stages(stages), start=1):
+        for index, (kind, payload) in enumerate(groups, start=1):
             stage_input = Path(workdir) / f"stage_{index}_in.wav"
             stage_output = Path(workdir) / f"stage_{index}_out.wav"
             write_wav(stage_input, np.concatenate([current_samples, np.zeros(pad)]))
-            if kind == "ffmpeg":
-                run_ffmpeg(["-v", "error", "-y", "-i", str(stage_input), "-af", ",".join(payload),
-                            "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_f32le", str(stage_output)])
-            else:
+            if kind == "deepfilter":
                 run_deep_filter(stage_input, stage_output, payload, find_deep_filter(deep_filter_bin), workdir)
+            else:
+                graph = ",".join(payload) if kind == "ffmpeg" else afftdn_profile_graph(payload, lead / SAMPLE_RATE)
+                run_ffmpeg(["-v", "error", "-y", "-i", str(stage_input), "-af", graph,
+                            "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_f32le", str(stage_output)])
             processed = decode(stage_output)
             delay = -alignment_lag_samples(current_samples, processed, int(SAMPLE_RATE * MAX_LATENCY_S))
             if latencies is not None:
-                latencies.append({"stage": payload if kind == "ffmpeg" else {"deepfilter": payload}, "latency_samples": delay})
-            current_samples = fit_length(processed[max(delay, 0):], len(source))
+                latencies.append({"stage": payload if kind == "ffmpeg" else {kind: payload}, "latency_samples": delay})
+            current_samples = fit_length(processed[max(delay, 0):], len(current_samples))
+    current_samples = current_samples[lead:]
     write_wav(output_path, current_samples, subtype=subtype)
     return current_samples
+
+
+def pause_windows(mask, min_s=0.12, trim_frames=2, hop_s=FRAME_HOP_S):
+    windows = []
+    for start, end in runs(mask, int(round(min_s / hop_s)) + 2 * trim_frames):
+        windows.append((round((start + trim_frames) * hop_s, 3), round((end - trim_frames) * hop_s, 3)))
+    return windows
+
+
+def pause_kurtosis(samples, windows, sample_rate=SAMPLE_RATE, band=(1000, 12000), n_fft=1024, hop=256):
+    from scipy.stats import kurtosis
+    values = []
+    for start, end in windows:
+        piece = samples[int(start * sample_rate):int(end * sample_rate)]
+        if len(piece) < n_fft * 3:
+            continue
+        freqs, _, spectrum = signal.stft(piece, sample_rate, nperseg=n_fft, noverlap=n_fft - hop, boundary=None, padded=False)
+        power = np.abs(spectrum[(freqs >= band[0]) & (freqs < band[1])]) ** 2
+        power = power / np.maximum(power.mean(axis=0, keepdims=True), EPSILON)
+        if power.shape[1] < 8:
+            continue
+        values.append({"window_s": [start, end], "median_bin_kurtosis": round(float(np.median(kurtosis(power, axis=1, fisher=True))), 2)})
+    overall = round(float(np.median([item["median_bin_kurtosis"] for item in values])), 2) if values else None
+    return overall, values
+
+
+def load_words(path):
+    data = json.loads(Path(path).read_text())
+    if isinstance(data, dict):
+        data = data.get("words") or data.get("captions") or []
+    words = []
+    for item in data:
+        text = (item.get("text") or item.get("word") or "").strip()
+        if "startMs" in item:
+            start, end = item["startMs"] / 1000, item["endMs"] / 1000
+        else:
+            start, end = float(item["start"]), float(item["end"])
+        if text and end > start:
+            words.append({"word": text, "start": start, "end": end})
+    return words
+
+
+def word_rms_db(samples, words, sample_rate=SAMPLE_RATE):
+    levels = []
+    for word in words:
+        piece = samples[int(word["start"] * sample_rate):int(word["end"] * sample_rate)]
+        levels.append(float(to_db(np.sqrt(np.mean(piece ** 2)))) if len(piece) else None)
+    return levels
+
+
+def word_softening(processed, reference, words, limit_db):
+    processed_levels = word_rms_db(processed, words)
+    reference_levels = word_rms_db(reference, words)
+    deltas = [
+        {"word": word["word"], "t": round(word["start"], 2), "delta_db": round(a - b, 2)}
+        for word, a, b in zip(words, processed_levels, reference_levels)
+        if a is not None and b is not None and b > -70
+    ]
+    values = np.array([item["delta_db"] for item in deltas])
+    softened = sorted((item for item in deltas if item["delta_db"] < -limit_db), key=lambda item: item["delta_db"])
+    return {
+        "words": len(deltas),
+        "median_delta_db": round(float(np.median(values)), 2) if len(values) else None,
+        "min_delta_db": round(float(values.min()), 2) if len(values) else None,
+        "softened_over_limit": softened,
+        "limit_db": limit_db,
+    }
+
+
+MATCHED_LUFS = -14.0
+
+
+def matched_floor_dbfs(samples, lufs_i, pause_mask):
+    levels = frame_db(samples)
+    count = min(len(levels), len(pause_mask))
+    pause_rms = mean_db(levels[:count], pause_mask[:count])
+    if pause_rms is None or lufs_i is None:
+        return None
+    return round(pause_rms + MATCHED_LUFS - lufs_i, 1)
 
 
 def alignment_lag_samples(reference, candidate, max_lag=4800):

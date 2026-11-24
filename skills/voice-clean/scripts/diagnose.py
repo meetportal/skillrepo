@@ -38,10 +38,10 @@ NOISY_FLOOR_DBFS = -50.0
 
 def deess_intensity(sibilance_rel_total_db):
     if sibilance_rel_total_db > -3.0:
-        return 0.7
-    if sibilance_rel_total_db > -5.0:
         return 0.6
-    return 0.5
+    if sibilance_rel_total_db > -5.0:
+        return 0.5
+    return 0.4
 
 
 def nonspeech_bursts(frame_levels, speech_mask, floor, low_band_db, body_band_db):
@@ -52,29 +52,39 @@ def nonspeech_bursts(frame_levels, speech_mask, floor, low_band_db, body_band_db
     return [(round(s * FRAME_HOP_S, 2), round(e * FRAME_HOP_S, 2)) for s, e in runs(candidates, 3)]
 
 
+def longest_quiet_window(frame_levels, floor, margin_db=3.0, min_s=0.2):
+    quiet = runs((frame_levels < floor + margin_db) & (frame_levels > -90), int(min_s / FRAME_HOP_S))
+    if not quiet:
+        return None
+    start, end = max(quiet, key=lambda run: run[1] - run[0])
+    return [round((start + 2) * FRAME_HOP_S, 2), round((end - 2) * FRAME_HOP_S, 2)]
+
+
 def recommend(report):
     advice = []
     params = {}
     floor = report["room_tone_p5_dbfs"]
     snr = report["snr_db"]
-    params["afftdn_nf"] = int(round(min(max(floor + 1, -80), -20)))
     if snr >= 35 and floor <= -55:
-        advice.append({"issue": "clean stationary room tone", "evidence": f"floor {floor} dBFS, SNR {snr} dB", "action": "preset chain09 with afftdn_nf set to the floor + 1"})
+        advice.append({"issue": "clean stationary room tone", "evidence": f"floor {floor} dBFS, SNR {snr} dB", "action": "preset dialogue (no denoiser); the expander keeps the floor under the raw file"})
     elif snr >= LOW_SNR_DB and floor <= NOISY_FLOOR_DBFS:
-        params["afftdn_nr"] = 14
-        advice.append({"issue": "moderate stationary noise", "evidence": f"floor {floor} dBFS, SNR {snr} dB", "action": "chain09 with afftdn_nr 12 to 18; A/B against deepfilter-gentle"})
+        params["afftdn_nf"] = int(round(min(max(floor - 1, -80), -20)))
+        advice.append({"issue": "moderate stationary noise", "evidence": f"floor {floor} dBFS, SNR {snr} dB", "action": "A/B dialogue, dialogue-nr (room_tone=<quiet window>) and dialogue-df; keep the one that passes the floor gate with the lowest pause kurtosis"})
     else:
-        advice.append({"issue": "noisy recording", "evidence": f"floor {floor} dBFS, SNR {snr} dB", "action": "A/B deepfilter-gentle and deepfilter-full against chain09; listen for warble on vowels"})
+        advice.append({"issue": "noisy recording", "evidence": f"floor {floor} dBFS, SNR {snr} dB", "action": "A/B dialogue-df and deepfilter-full; listen for warble on vowels"})
+    if report.get("room_tone_window_s"):
+        start, end = report["room_tone_window_s"]
+        params["room_tone"] = f"{report['input']}@{start}:{end}"
     hum = {freq: value for freq, value in report["hum_peak_above_local_db"].items() if value >= HUM_ALERT_DB}
     if hum:
         strongest = max(hum, key=hum.get)
         fundamental = 50 if int(strongest) % 50 == 0 else 60
         params["hum_hz"] = fundamental
-        advice.append({"issue": "mains hum", "evidence": f"peaks {hum}", "action": f"preset chain09-hum with hum_hz={fundamental}"})
+        advice.append({"issue": "mains hum", "evidence": f"peaks {hum}", "action": f"preset dialogue-hum with hum_hz={fundamental}"})
     sibilance = report["speech_band_balance_db"].get("5k-10k")
     if sibilance is not None:
         params["deess_i"] = deess_intensity(sibilance)
-        if params["deess_i"] > 0.5:
+        if params["deess_i"] > 0.4:
             advice.append({"issue": "sibilance", "evidence": f"5-10k at {sibilance} dB of total speech energy", "action": f"deess_i={params['deess_i']} for this clip"})
     if report["plosive_events"]:
         advice.append({"issue": "plosive pops", "evidence": f"{len(report['plosive_events'])} low bursts, strongest at {report['plosive_events'][0]['t']} s", "action": "keep highpass_hz at 80; raise to 100 only if pops remain audible"})
@@ -85,7 +95,7 @@ def recommend(report):
     if report["true_peak_dbtp"] is not None and report["true_peak_dbtp"] > -1.0:
         advice.append({"issue": "hot transient", "evidence": f"true peak {report['true_peak_dbtp']} dBTP", "action": "nothing in the voice chain; the master limiter handles it"})
     if report.get("stereo_difference_rms_dbfs") is not None and report["stereo_difference_rms_dbfs"] < -50:
-        advice.append({"issue": "dual mono", "evidence": f"L-R difference {report['stereo_difference_rms_dbfs']} dBFS", "action": "downmix to mono (-ac 1)"})
+        advice.append({"issue": "dual mono", "evidence": f"L-R difference {report['stereo_difference_rms_dbfs']} dBFS", "action": "downmix by averaging: -af pan=mono|c0=0.5*c0+0.5*c1 (never -ac 1, which sums to +3 dB on float output)"})
     return advice, params
 
 
@@ -142,6 +152,7 @@ def diagnose(path, out_dir, noise_window=None, write_png=True):
         "plosive_events": plosives[:12],
         "nonspeech_bursts": nonspeech_bursts(levels, masks["speech"], floor, low_band, body_band),
         "listen": listen_points(samples),
+        "room_tone_window_s": longest_quiet_window(levels, floor),
     }
     report["recommendations"], report["suggested_params"] = recommend(report)
     if write_png:

@@ -39,6 +39,7 @@ def main():
     parser.add_argument("--compute-type", default="int8")
     parser.add_argument("--language", default="en")
     parser.add_argument("--prompt", help="initial prompt with names and jargon, used for both passes")
+    parser.add_argument("--drop-limit", type=float, default=0.15, help="list matched words whose confidence falls by more than this in the candidate")
     parser.add_argument("--out", help="write the json report here")
     args = parser.parse_args()
 
@@ -49,8 +50,11 @@ def main():
     candidate = transcribe(model, args.candidate, args.language, args.prompt)
     matcher = difflib.SequenceMatcher(a=[w["word"] for w in reference], b=[w["word"] for w in candidate], autojunk=False)
     changes = []
+    confidence = []
     for tag, a0, a1, b0, b1 in matcher.get_opcodes():
         if tag == "equal":
+            for ref_word, cand_word in zip(reference[a0:a1], candidate[b0:b1]):
+                confidence.append({"word": ref_word["word"], "t": ref_word["start"], "reference_p": ref_word["p"], "candidate_p": cand_word["p"], "drop": round(ref_word["p"] - cand_word["p"], 3)})
             continue
         changes.append({
             "type": tag,
@@ -68,10 +72,16 @@ def main():
         "missing_or_changed": missing,
         "extra_or_changed": extra,
         "changes": changes,
+        "mean_p": {"reference": round(sum(w["p"] for w in reference) / max(len(reference), 1), 3), "candidate": round(sum(w["p"] for w in candidate) / max(len(candidate), 1), 3)},
+        "matched_confidence": confidence,
+        "confidence_drops": sorted((item for item in confidence if item["drop"] > args.drop_limit), key=lambda item: -item["drop"]),
         "reference_text": " ".join(w["word"] for w in reference),
         "candidate_text": " ".join(w["word"] for w in candidate),
     }
     print(f"reference {len(reference)} words, candidate {len(candidate)} words, match {report['match_ratio']}")
+    print(f"mean word confidence: reference {report['mean_p']['reference']}, candidate {report['mean_p']['candidate']}; drops over {args.drop_limit}: {len(report['confidence_drops'])}")
+    for item in report["confidence_drops"]:
+        print(f"  confidence {item['word']} at {item['t']} s: {item['reference_p']} -> {item['candidate_p']}")
     for change in changes:
         print(f"  {change['type']:<7} at {change['t']} s: {' '.join(change['reference']) or '-'} -> {' '.join(change['candidate']) or '-'}")
     if args.out:

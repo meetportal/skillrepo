@@ -12,6 +12,9 @@ from voicelib import SAMPLE_RATE, astats, decode
 CONTEXT_S = 0.2
 CLICK_RATIO_DB = 12.0
 LOUD_SPLICE_DBFS = -25.0
+DIP_DB = 6.0
+DIP_WINDOW_S = 0.06
+DIP_FRAME_S = 0.01
 
 
 def audio_clip(item):
@@ -45,6 +48,31 @@ def click_ratio_db(samples, center, half_window):
     return round(float(20 * np.log10(max(float(inside.max()), 1e-12) / reference)), 1)
 
 
+def ten_ms_levels(samples, start=0, end=None):
+    frame = int(SAMPLE_RATE * DIP_FRAME_S)
+    end = len(samples) if end is None else min(len(samples), end)
+    start = max(0, start)
+    count = (end - start) // frame
+    if count <= 0:
+        return np.array([])
+    blocks = samples[start:start + count * frame].reshape(count, frame)
+    return 10 * np.log10(np.maximum(np.mean(blocks ** 2, axis=1), 1e-12))
+
+
+def room_floor_db(samples):
+    levels = ten_ms_levels(samples)
+    live = levels[levels > -90]
+    return float(np.percentile(live if len(live) else levels, 5))
+
+
+def dip_db(samples, center, floor_db):
+    half = int(SAMPLE_RATE * DIP_WINDOW_S)
+    inside = ten_ms_levels(samples, center - half, center + half)
+    if len(inside) == 0:
+        return None
+    return round(floor_db - float(inside.min()), 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Measure peaks and click energy around every EDL splice in one or more cut audio files.")
     parser.add_argument("--edl", required=True)
@@ -58,7 +86,8 @@ def main():
     half = args.window_ms / 1000
     half_samples = int(SAMPLE_RATE * half)
     decoded = {path: decode(path) for path in args.audio}
-    report = {"window_ms": args.window_ms, "splices": [], "flagged": []}
+    floors = {path: room_floor_db(samples) for path, samples in decoded.items()}
+    report = {"window_ms": args.window_ms, "room_floor_p5_dbfs": {Path(path).name: round(value, 1) for path, value in floors.items()}, "splices": [], "flagged": []}
     for index, time in enumerate(boundaries[1:-1], start=1):
         previous, following = edl["ranges"][index - 1], edl["ranges"][index]
         continuous = continuous_audio(previous, following)
@@ -69,11 +98,14 @@ def main():
                 "peak_dbfs": round(stats.get("peak_level_db", float("-inf")), 1),
                 "rms_dbfs": round(stats.get("rms_level_db", float("-inf")), 1),
                 "click_ratio_db": click_ratio_db(samples, int(round(time * SAMPLE_RATE)), half_samples),
+                "dip_below_room_floor_db": dip_db(samples, int(round(time * SAMPLE_RATE)), floors[path]),
             }
             entry[Path(path).name] = measured
             reasons = []
             if measured["click_ratio_db"] is not None and measured["click_ratio_db"] > CLICK_RATIO_DB:
                 reasons.append(f"curvature spike {measured['click_ratio_db']} dB over context")
+            if measured["dip_below_room_floor_db"] is not None and measured["dip_below_room_floor_db"] > DIP_DB:
+                reasons.append(f"level dips {measured['dip_below_room_floor_db']} dB under the file's room-tone floor (p5 of 10 ms frames)")
             if measured["peak_dbfs"] > LOUD_SPLICE_DBFS:
                 reasons.append(f"peak {measured['peak_dbfs']} dBFS at the splice")
             if reasons and not continuous:
@@ -81,7 +113,7 @@ def main():
         report["splices"].append(entry)
     for entry in report["splices"]:
         cells = "  ".join(
-            f"{name}: pk {entry[name]['peak_dbfs']:>6} click {entry[name]['click_ratio_db']!s:>5}"
+            f"{name}: pk {entry[name]['peak_dbfs']:>6} click {entry[name]['click_ratio_db']!s:>5} dip {entry[name]['dip_below_room_floor_db']!s:>5}"
             for name in (Path(path).name for path in args.audio)
         )
         kind = "continuous" if entry["continuous_audio"] else "splice"

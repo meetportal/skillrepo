@@ -1,0 +1,36 @@
+{
+  "name": "dialogue-nr",
+  "description": "dialogue plus afftdn with a fixed noise profile sampled from room tone (tn=0, so nothing re-tracks across splices). For steady hiss or HVAC that the expander alone leaves audible. Needs room_tone=<wav>[@start:end].",
+  "params": {
+    "highpass_hz": 80,
+    "lowmid_hz": 250,
+    "lowmid_gain_db": -2,
+    "presence_hz": 3500,
+    "presence_gain_db": 2.5,
+    "deess_i": 0.4,
+    "deess_f": 1.0,
+    "comp_threshold_db": -14,
+    "comp_ratio": 2,
+    "expander_threshold_db": -45,
+    "expander_ratio": 3,
+    "expander_range": 0.5,
+    "expander_release_ms": 50,
+    "afftdn_nr": 6,
+    "afftdn_nf": -60
+  },
+  "stages": [
+    "highpass=f={highpass_hz}:poles=2",
+    {
+      "afftdn_profile": {
+        "nr": "{afftdn_nr}",
+        "nf": "{afftdn_nf}",
+        "room_tone": "{room_tone}"
+      }
+    },
+    "equalizer=f={lowmid_hz}:t=q:w=1.0:g={lowmid_gain_db}",
+    "equalizer=f={presence_hz}:t=q:w=1.2:g={presence_gain_db}",
+    "deesser=i={deess_i}:m=0.5:f={deess_f}:s=o",
+    "agate=threshold={expander_threshold_db}dB:ratio={expander_ratio}:range={expander_range}:knee=6:attack=5:release={expander_release_ms}:detection=rms",
+    "acompressor=threshold={comp_threshold_db}dB:ratio={comp_ratio}:attack=10:release=150:makeup=1:knee=6"
+  ]
+}
