@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { z } from "zod";
+import { brand } from "./lib/brand";
 
 export const faceBoxSchema = z.object({
   cx: z.number(),
@@ -60,6 +61,25 @@ export const accentSpecSchema = z.union([
   z.object({ text: z.string(), n: z.union([z.number().int().positive(), z.literal("all")]).optional() }),
 ]);
 
+export const topLogoRangeSchema = z.object({
+  from: z.number().nonnegative(),
+  to: z.number().positive(),
+});
+
+export const topLogoSchema = z.object({
+  enabled: z.boolean().default(false),
+  logo: z.string().min(1).default("white"),
+  widthPx: z.number().min(brand.logoMark.minWidthPx).max(400).default(brand.layout.topLogo.widthPx),
+  centerY: z.number().min(brand.layout.topLogo.y0).max(brand.layout.topLogo.y1).default(brand.layout.topLogo.centerY),
+  ranges: z.array(topLogoRangeSchema).default([]),
+  hideDuring: z.array(z.string()).default(["EndCard"]),
+  enterFrames: z.number().int().min(1).max(20).default(8),
+  exitFrames: z.number().int().min(1).max(20).default(5),
+  slidePx: z.number().min(0).max(40).default(14),
+  shadow: z.number().min(0).max(1).default(1),
+  scrim: z.number().min(0).max(1).default(0.22),
+});
+
 export const reelPropsSchema = z.object({
   aroll: z.string(),
   durationSec: z.number().positive(),
@@ -70,6 +90,7 @@ export const reelPropsSchema = z.object({
   captionModes: z.array(captionModeSchema),
   beats: z.array(beatSchema),
   accents: z.array(accentSpecSchema),
+  topLogo: topLogoSchema.optional(),
   guides: z.boolean().optional(),
 });
 
@@ -83,6 +104,8 @@ export type CaptionModeName = z.infer<typeof captionModeNameSchema>;
 export type CaptionMode = z.infer<typeof captionModeSchema>;
 export type Beat = z.infer<typeof beatSchema>;
 export type AccentSpec = z.infer<typeof accentSpecSchema>;
+export type TopLogoRange = z.infer<typeof topLogoRangeSchema>;
+export type TopLogoProps = z.infer<typeof topLogoSchema>;
 export type ReelProps = z.infer<typeof reelPropsSchema>;
 
 export type BeatContext = {

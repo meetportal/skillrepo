@@ -5,7 +5,7 @@ description: Mail Infra brand kit as code and rules for short-form vertical reel
 
 # Mail Infra brand (reel system)
 
-The reels use the **reel system**: Poppins plus Lora Italic accent words, navy cards, orange emphasis, cream end card, the two-tone envelope logo. The website system (pure blue `#0000FF`, purple `#7C3AED`, Inter) is never used in reels. The only website element borrowed is the gold `#FFD700` CTA pill on the end card.
+The reels use the **reel system**: Poppins plus Lora Italic accent words, navy cards, orange emphasis, cream end card. The logo is the **website header mark** (mail outline icon plus "Mailinfra" in Inter Bold), the only correct Mail Infra logo. Apart from that mark, the website system (pure blue `#0000FF`, purple `#7C3AED`, Inter) is never used in reels. The only other website element borrowed is the gold `#FFD700` CTA pill on the end card.
 
 Machine-readable source of truth: `brand.json` in this folder. Caption spelling rules (brand name, acronyms, US spelling, phrases never to show) live in `caption-dictionary.json`, used by the `reel-captions` scripts. Code (for example the `reel-motion` Remotion theme) reads tokens from it; do not retype hex values by hand.
 
@@ -18,8 +18,8 @@ Machine-readable source of truth: `brand.json` in this folder. Caption spelling 
 | navyTile | `#18243C` | tiles and inner rows |
 | border | `#2C3450` | 1 px card border |
 | accent | `#F09C48` | emphasis, active state, the accent word in a caption |
-| brandOrange | `#E88838` | logo orange, accent on cream |
-| brandBlue | `#2870BC` | Mail Infra itself (logo, brand moments) |
+| brandOrange | `#E88838` | accent on cream (end card kicker and accent word) |
+| brandBlue | `#2870BC` | Mail Infra itself (brand moments in graphics; the logo keeps its own colours) |
 | danger | `#F05468` | mistake, failure, burned, marked |
 | success / successFill | `#30C898` / `#143C40` | fixed, safe, done |
 | warning | `#F4C424` | not set, risky, pending |
@@ -41,10 +41,25 @@ Red always means a mistake, green always means fixed or safe, orange always mean
 
 ## Logo usage
 
-- Files in `assets/logos/` are outlined recreations (no font needed): `logo.svg` (lockup with descriptor), `logo-horizontal.svg`, `logo-horizontal-on-dark.svg` (navy backgrounds), `logo-icon.svg` (envelope only). `logo-live-text.svg` needs Poppins installed; prefer the outlined files.
-- On footage, place the logo on a cream `#F4F0E8` rounded card; on navy use the on-dark variant; on cream use `logo.svg`.
-- No persistent logo bug in any corner (the top right collides with platform camera and search icons). The brand appears in slam styling, the logo pop on the spoken brand name, and the end card.
-- Never recolour, stretch, outline or add effects to the logo. Minimum width 280 px on a 1080 px canvas.
+The only correct logo is the mailinfra.co website header mark: the Lucide `mail` outline icon (stroke 2, round caps and joins) followed by the wordmark "Mailinfra" in Inter Bold 700, tracking -0.025em, icon height equal to the line height, 12 px gap at the 24 px source size. The old "envelope as M + ail Infra" lockup is wrong and must never appear.
+
+Files in `assets/logos/` (outlined, no font needed; `brand.json` keys in brackets):
+
+| File | Use |
+|---|---|
+| `mailinfra-logo-white.svg` (`white`) | footage, navy cards, navy takeovers, the persistent top logo |
+| `mailinfra-logo-on-dark.svg` (`onDark`) | same artwork as `white`, kept for parity with the website export |
+| `mailinfra-logo-color.svg` (`color`) | light backgrounds: icon `#0000FF`, text `#1A1A1A` (cream end card, cream logo pop card) |
+| `mailinfra-icon-white.svg` (`iconWhite`) | icon only, white, for tight spots |
+
+`brand.json` `logoMark.iconSplit` (0.27) is the horizontal fraction between icon and wordmark, used to animate the icon first and the wordmark after it.
+
+- White mark on dark or footage, colour mark on cream or white. Never put the colour mark on footage or navy.
+- **Top logo**: every reel shows the white mark persistently at top-center (`TopLogo` in `reel-motion`, about 320 px wide, centred at y 170, zone y 120 to 220) for the whole talking section, including over navy takeovers, with a soft dark drop shadow so it reads on bright walls. It is hidden while the end card shows (the big logo takes over). Nothing else is placed in the top logo zone; hook headline, progress rail and graphics start at y 236 or lower.
+- The logo pop on the spoken brand name and the end card use the same mark.
+- No logo bug in a corner (the top right collides with platform camera and search icons).
+- Never recolour, stretch, outline or add effects to the logo, except the soft drop shadow of the top logo. Minimum width 280 px on a 1080 px canvas.
+- The icon is Lucide's `mail` (ISC, `assets/logos/ISC-Lucide.txt`); the wordmark glyphs are outlined from Inter (OFL). To regenerate the files, outline "Mailinfra" from Inter at wght 700 with -0.025em tracking and place it 12 px after a 32 px icon (source units), baseline at half height plus half the cap height.
 
 ## CTA rules
 
@@ -67,14 +82,14 @@ Headlines (accent word in Lora Italic, `*like this*`):
 
 Kicker: "SAFE DOMAINS. SCALABLE SENDING." CTA: "mailinfra.co", or "Scale cold email safely at mailinfra.co". Any offer line needs owner approval before use.
 
-End card layout: cream background with a blue glow near the top right and a peach glow near the bottom left; logo about 760 px wide near y 420; headline Poppins Bold 64 px ink; gold URL pill; "Link in bio". Content inside x 70 to 950, y 300 to 1450. Music runs to the last frame so the loop is clean.
+End card layout: cream background with a blue glow near the top right and a peach glow near the bottom left; colour logo about 640 px wide above the headline; headline Poppins Bold 64 px ink; gold URL pill; "Link in bio". Content inside x 70 to 950, y 300 to 1450. Music runs to the last frame so the loop is clean.
 
 ## Never ship
 
 - `www.mailinfra.co`, or any URL form other than `mailinfra.co`
 - any number not in `approvedClaims` (no "USD 2/mo", "250+", "99 %", "40-120/day", website template stats)
-- website palette or Inter in a reel
-- a persistent logo bug or a watermark
+- website palette or Inter in a reel outside the logo mark
+- the old envelope-as-M lockup; a logo bug in a corner; a watermark
 - the Google Workspace logo without the "authorized reseller" wording beside it; any recreated Google UI
 - scene counters ("01/11"), timecodes, "n/3" labels
 - card text under 44 px

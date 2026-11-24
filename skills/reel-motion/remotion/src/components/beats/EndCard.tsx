@@ -2,15 +2,16 @@ import { measureText } from "@remotion/layout-utils";
 import { AbsoluteFill, Easing, Img, interpolate, interpolateColors } from "remotion";
 import { z } from "zod";
 import { markupLineSchema } from "../../lib/beatSchemas";
-import { colors, fontFamilies, layout, motion, type as typeTokens } from "../../theme";
+import { colors, fontFamilies, layout, motion, surface, type as typeTokens } from "../../theme";
 import type { BeatProps } from "../../types";
 import { AccentText, entranceProgress } from "../ui";
-import { fullFrameCenterX, fullFrameContentWidth, logoPopDefaults, logoPopGeometry, logoPopRadius } from "./brand-end/geometry";
+import { fullFrameCenterX, fullFrameContentWidth, logoForCard, logoPopDefaults, logoPopGeometry, logoPopRadius } from "./brand-end/geometry";
 import { logoRect, mixPlacement, placeLogoCentered, resolveLogoSrc, useLogoMeta, type LogoMeta, type LogoPlacement } from "./brand-end/logo";
 import { fitMarkupSize, useBrandFontsReady } from "./brand-end/text";
 
 const handoffSchema = z.object({
-  logo: z.string().min(1).default(logoPopDefaults.logo),
+  card: z.enum(["cream", "navy"]).default(logoPopDefaults.card),
+  logo: z.string().min(1).optional(),
   widthPx: z.number().min(360).max(880).default(logoPopDefaults.widthPx),
   centerY: z.number().default(logoPopDefaults.centerY),
 });
@@ -21,8 +22,8 @@ export const schema = z.object({
   sub: z.string().optional(),
   kicker: z.string().optional(),
   offer: z.string().optional(),
-  logo: z.string().min(1).default("primary"),
-  logoWidthPx: z.number().min(280).max(880).default(760),
+  logo: z.string().min(1).default("color"),
+  logoWidthPx: z.number().min(280).max(880).default(640),
   wipeFrames: z.number().int().min(4).max(20).default(8),
   handoff: handoffSchema.nullable().default(handoffSchema.parse({})),
   urlAt: z.number().nonnegative().default(0.72),
@@ -53,6 +54,7 @@ const wipeOverscanPx = 64;
 const shineDelayFrames = 7;
 const shineFrames = 13;
 const riseFrames = motion.entranceFrames;
+const navyHandoffFrames = 6;
 
 const rgba = (hex: string, alpha: number) => {
   const value = Number.parseInt(hex.replace("#", "").slice(0, 6), 16);
@@ -88,7 +90,7 @@ const LogoLayer = ({ src, meta, placement, opacity }: { src: string; meta: LogoM
 const EndCard = ({ props, frame, fps, durationInFrames }: BeatProps<EndCardProps>) => {
   const ready = useBrandFontsReady();
   const endSrc = resolveLogoSrc(props.logo);
-  const popSrc = resolveLogoSrc(props.handoff?.logo ?? props.logo);
+  const popSrc = resolveLogoSrc(props.handoff ? (props.handoff.logo ?? logoForCard(props.handoff.card)) : props.logo);
   const endMeta = useLogoMeta(endSrc);
   const popMeta = useLogoMeta(popSrc);
   if (!endMeta || !popMeta) {
@@ -183,8 +185,11 @@ const EndCard = ({ props, frame, fps, durationInFrames }: BeatProps<EndCardProps
   const startPlacement = popGeometry?.logo ?? endPlacement;
   const placement = mixPlacement(startPlacement, endPlacement, travel);
   const sameLogo = endSrc === popSrc;
-  const endLogoOpacity = sameLogo ? 1 : interpolate(travel, [0, 0.3], [0, 1], clamp);
-  const popLogoOpacity = sameLogo ? 0 : 1 - interpolate(travel, [0.2, 0.45], [0, 1], clamp);
+  const fromNavy = props.handoff?.card === "navy";
+  const navyFade = 1 - interpolate(frame, [1, navyHandoffFrames], [0, 1], { ...clamp, easing: easeInOut });
+  const endLogoOpacity = sameLogo ? 1 : fromNavy ? 1 - navyFade : interpolate(travel, [0, 0.3], [0, 1], clamp);
+  const popLogoOpacity = sameLogo ? 0 : fromNavy ? navyFade : 1 - interpolate(travel, [0.2, 0.45], [0, 1], clamp);
+  const navyHandoff = fromNavy ? navyFade : 0;
   const goldTop = interpolateColors(0.35, [0, 1], [colors.ctaGold, "#FFFFFF"]);
   const goldBottom = interpolateColors(0.06, [0, 1], [colors.ctaGold, "#B08800"]);
 
@@ -214,6 +219,7 @@ const EndCard = ({ props, frame, fps, durationInFrames }: BeatProps<EndCardProps
             ].join(", "),
           }}
         />
+        {navyHandoff > 0 ? <AbsoluteFill style={{ background: surface.cardGradient, opacity: navyHandoff }} /> : null}
         <AbsoluteFill style={logoOwnEntrance ? { opacity: logoOwnEntrance.opacity, transform: logoOwnEntrance.transform } : undefined}>
           {sameLogo ? null : <LogoLayer src={popSrc} meta={popMeta} placement={placement} opacity={popLogoOpacity} />}
           <LogoLayer src={endSrc} meta={endMeta} placement={placement} opacity={endLogoOpacity} />

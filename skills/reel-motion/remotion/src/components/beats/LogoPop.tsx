@@ -1,19 +1,19 @@
 import { AbsoluteFill, Img, interpolate, interpolateColors } from "remotion";
 import { z } from "zod";
+import { brand } from "../../lib/brand";
 import { colors, layout, motion, surface } from "../../theme";
 import type { BeatProps } from "../../types";
 import { entranceProgress, exitProgress, stampScale } from "../ui";
-import { logoPopDefaults, logoPopGeometry, logoPopRadius } from "./brand-end/geometry";
+import { logoForCard, logoPopDefaults, logoPopGeometry, logoPopRadius } from "./brand-end/geometry";
 import { logoRect, resolveLogoSrc, useLogoMeta } from "./brand-end/logo";
 
 export const schema = z.object({
   logo: z.string().min(1).optional(),
-  card: z.enum(["cream", "navy"]).default("cream"),
+  card: z.enum(["cream", "navy"]).default(logoPopDefaults.card),
   widthPx: z.number().min(360).max(880).default(logoPopDefaults.widthPx),
   centerY: z.number().min(layout.safe.y0 + 120).max(layout.safe.y1 - 120).default(logoPopDefaults.centerY),
   popAt: z.number().nonnegative().default(0),
-  markSplit: z.number().gt(0).lt(1).nullable().default(null),
-  markHeight: z.number().gt(0).max(1).default(1),
+  markSplit: z.number().gt(0).lt(1).nullable().default(brand.logoMark.iconSplit),
   exit: z.enum(["handoff", "fade"]).default("handoff"),
 });
 
@@ -25,8 +25,6 @@ const markLeadFrames = 1;
 const wordmarkLeadFrames = 3;
 const wordmarkFrames = 10;
 const wordmarkTravelPx = 44;
-const restLagFrames = 2;
-const restTravelPx = 14;
 
 const cardSkins = {
   cream: {
@@ -43,7 +41,7 @@ const cardSkins = {
 };
 
 const LogoPop = ({ props, frame, fps, durationInFrames }: BeatProps<LogoPopProps>) => {
-  const src = resolveLogoSrc(props.logo ?? (props.card === "navy" ? "horizontalOnDark" : logoPopDefaults.logo));
+  const src = resolveLogoSrc(props.logo ?? logoForCard(props.card));
   const meta = useLogoMeta(src);
   if (!meta) {
     return null;
@@ -76,28 +74,25 @@ const LogoPop = ({ props, frame, fps, durationInFrames }: BeatProps<LogoPopProps
         </div>
       );
     }
-    const markBottom = props.markHeight * 100;
     const splitPct = props.markSplit * 100;
-    const below = (1 - props.markHeight) * 100;
     const markStart = start + markLeadFrames;
     const markOpacity = interpolate(frame, [markStart, markStart + 2], [0, 1], clamp);
     const wordStart = start + wordmarkLeadFrames;
     const wordProgress = interpolate(frame, [wordStart, wordStart + wordmarkFrames], [0, 1], { ...clamp, easing: motion.ease });
-    const restProgress = entranceProgress(frame, wordStart + restLagFrames);
     return (
       <>
         <div
           style={{
             ...logoBox,
-            clipPath: `inset(-20% ${100 - splitPct}% ${below}% -20%)`,
+            clipPath: `inset(-20% ${100 - splitPct}% -20% -20%)`,
             opacity: markOpacity,
             transform: `scale(${stampScale(frame, markStart)})`,
-            transformOrigin: `${splitPct / 2}% ${markBottom / 2}%`,
+            transformOrigin: `${splitPct / 2}% 50%`,
           }}
         >
           <Img src={src} style={imageStyle} />
         </div>
-        <div style={{ ...logoBox, clipPath: `inset(-20% -20% ${below}% ${splitPct}%)` }}>
+        <div style={{ ...logoBox, clipPath: `inset(-20% -20% -20% ${splitPct}%)` }}>
           <div
             style={{
               ...imageStyle,
@@ -108,18 +103,6 @@ const LogoPop = ({ props, frame, fps, durationInFrames }: BeatProps<LogoPopProps
             <Img src={src} style={imageStyle} />
           </div>
         </div>
-        {below > 0 ? (
-          <div
-            style={{
-              ...logoBox,
-              clipPath: `inset(${markBottom}% -20% -20% -20%)`,
-              opacity: interpolate(restProgress, [0, 0.5], [0, 1], clamp),
-              transform: `translateY(${Math.round((1 - restProgress) * restTravelPx)}px)`,
-            }}
-          >
-            <Img src={src} style={imageStyle} />
-          </div>
-        ) : null}
       </>
     );
   };

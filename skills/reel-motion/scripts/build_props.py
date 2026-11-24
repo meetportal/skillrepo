@@ -97,11 +97,30 @@ def normalize_accents(accents, problems):
     return normalized
 
 
+TOP_LOGO_KEYS = {"enabled", "logo", "widthPx", "centerY", "ranges", "hideDuring", "enterFrames", "exitFrames", "slidePx", "shadow", "scrim"}
+
+
+def check_top_logo(top_logo, duration, fps, problems):
+    if not isinstance(top_logo, dict):
+        problems.append("topLogo must be an object")
+        return
+    unknown = set(top_logo) - TOP_LOGO_KEYS
+    if unknown:
+        problems.append(f"topLogo: unknown keys {sorted(unknown)}")
+    for item in top_logo.get("ranges", []):
+        if not 0 <= item.get("from", -1) < item.get("to", -1) <= duration + 1e-6:
+            problems.append(f"topLogo range {item.get('from')}..{item.get('to')} invalid for duration {duration}")
+    ranges = top_logo.get("ranges", [])
+    latest_start = 1.0 - top_logo.get("enterFrames", 8) / fps
+    if top_logo.get("enabled") and ranges and min(item.get("from", 0) for item in ranges) > latest_start + 1e-6:
+        problems.append(f"topLogo: the first range starts after {latest_start:.2f} s; the logo must be fully in by 1.0 s")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Merge cues, words, beatmap and camera plan into Remotion props for the Reel composition.")
     parser.add_argument("--cues", required=True)
     parser.add_argument("--words", required=True, help="Remotion Caption[] on the output timeline")
-    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents}; @word/@cut anchors allowed")
+    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents, topLogo?}; @word/@cut anchors allowed")
     parser.add_argument("--camera", required=True, help="camera plan {keys:[{t,scale,tx,ty,ease}]}")
     parser.add_argument("--aroll", required=True, help="A-roll video file inside --public-dir")
     parser.add_argument("--public-dir", required=True, help="directory passed to remotion as --public-dir")
@@ -133,6 +152,9 @@ def main():
     check_modes(modes, problems)
     check_words(words, duration, problems)
     accents = normalize_accents(beatmap.get("accents", []), problems)
+    top_logo = beatmap.get("topLogo")
+    if top_logo is not None:
+        check_top_logo(top_logo, duration, fps, problems)
     if problems:
         sys.exit("props invalid:\n  " + "\n  ".join(problems))
 
@@ -156,6 +178,8 @@ def main():
         "beats": beats,
         "accents": accents,
     }
+    if top_logo is not None:
+        props["topLogo"] = top_logo
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(props, indent=1) + "\n")
     print(f"wrote {os.path.abspath(args.out)}: {len(words)} words, {len(beats)} beats, {len(camera)} camera keys, {duration:.2f} s")

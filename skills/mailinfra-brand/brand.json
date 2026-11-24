@@ -25,7 +25,6 @@
     "creamGlowBlue": "#C8D4EC",
     "creamGlowPeach": "#F4D8BC",
     "ink": "#141828",
-    "logoInk": "#383C44",
     "taglineGray": "#4C4C54",
     "ctaGold": "#FFD700",
     "ctaInk": "#1A1A1A"
@@ -73,11 +72,20 @@
     "mono": {"family": "monospace", "minSize": 36}
   },
   "logos": {
-    "primary": "assets/logos/logo.svg",
-    "horizontal": "assets/logos/logo-horizontal.svg",
-    "horizontalOnDark": "assets/logos/logo-horizontal-on-dark.svg",
-    "icon": "assets/logos/logo-icon.svg",
-    "liveText": "assets/logos/logo-live-text.svg"
+    "color": "assets/logos/mailinfra-logo-color.svg",
+    "white": "assets/logos/mailinfra-logo-white.svg",
+    "onDark": "assets/logos/mailinfra-logo-on-dark.svg",
+    "iconWhite": "assets/logos/mailinfra-icon-white.svg"
+  },
+  "logoMark": {
+    "source": "website header mark",
+    "icon": "lucide mail (outline, stroke 2, round caps and joins)",
+    "wordmark": "Mailinfra",
+    "font": {"family": "Inter", "weight": 700, "tracking": "-0.025em", "outlined": true},
+    "onDark": {"icon": "#FFFFFF", "text": "#FFFFFF", "file": "white"},
+    "onLight": {"icon": "#0000FF", "text": "#1A1A1A", "file": "color"},
+    "iconSplit": 0.27,
+    "minWidthPx": 280
   },
   "layout": {
     "width": 1080,
@@ -85,7 +93,8 @@
     "safe": {"x0": 70, "x1": 950, "y0": 220, "y1": 1500},
     "cardBox": {"x0": 70, "x1": 950, "y0": 1150, "y1": 1480},
     "captionY": {"talk": 1180, "takeover": 1180, "card": 1060},
-    "rail": {"x": 70, "y": 236, "segmentW": 64, "segmentH": 10, "count": 3}
+    "rail": {"x": 70, "y": 236, "segmentW": 64, "segmentH": 10, "count": 3},
+    "topLogo": {"centerY": 170, "widthPx": 320, "x0": 70, "x1": 950, "y0": 120, "y1": 220}
   },
   "cta": {
     "url": "mailinfra.co",
@@ -112,8 +121,8 @@
   "neverShip": [
     "www.mailinfra.co or any www. form of the URL",
     "any number, price, percentage, client count or volume figure not in approvedClaims",
-    "the website palette (#0000FF, #7C3AED) or Inter in reels",
-    "a persistent logo bug or a watermark",
+    "the website palette (#0000FF, #7C3AED) or Inter in reels, except inside the logo mark itself",
+    "a logo bug in a corner, the old envelope-as-M lockup, or a watermark (the only persistent logo is the top-center TopLogo)",
     "the Google Workspace logo without the authorized reseller wording beside it, or any recreated Google UI",
     "scene counters such as 01/11, timecodes, or n/3 labels",
     "card text under 44 px (36 px only for a mono DNS record line)",

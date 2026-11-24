@@ -46,7 +46,7 @@ Dependencies: 6 and 7 can run in parallel after 5; 8 needs 5 and 7; 9 needs 6 an
 5. **No `-shortest`, anywhere.** Pad or trim audio to the video length (`apad,atrim=end=V`) and gate v/a durations within 40 ms.
 6. **No speed change** on the voice (no `atempo`, no rubberband) unless the owner asks for an A/B.
 7. **No invented numbers.** Prices, percentages, counts, limits and ratings appear only if they are in the brand's approved claims list. Graphics use relative shapes instead.
-8. **No watermark, no persistent logo bug, no recreated third-party UI.**
+8. **No watermark, no logo bug in a corner, no recreated third-party UI.** The brand mark sits persistently at top-center (`TopLogo` in `reel-motion`, top logo zone y 120 to 220) for the whole talking section, hidden only under the end card.
 9. **Never edit from previous agency or platform renders.** Use them only as a reference to critique. Every frame and sample comes from the raw camera files.
 10. **Measure, then look, then claim.** Every "done" is backed by a number from a script and a frame you have looked at (Read the image). Audio choices are numbers plus timestamps for a human listen; never claim something sounds good.
 11. **No invented facts about the footage.** Recompute every graphic and SFX time from `words.out.json` after each cut; planning estimates are never used for timing.
@@ -101,7 +101,7 @@ Create it in stage 0 and append to it at every stage. Keep it short; numbers ove
 5. **Visual change at least every 4 s**: a cut, a scale change (alternate two punch states on jump cuts, never two cuts in a row at the same scale) or a graphic entrance or exit. Plan the camera states and the graphics together.
 6. **List scripts get a numbered spine.** When the speaker says "three mistakes / first / second / third", each item gets a title slam on its marker word (the number as large content, not as a "01/03" HUD counter), its own shot, and a breath of about 0.28 s after the marker so the slam lands. A small progress element may track the items and pay off in the wrap (for example turning into the checklist of fixes).
 7. Graphics land 0 to 2 frames before the word they illustrate; hold each card at least 0.3 s per word on it + 0.5 s.
-8. Text at least 44 px on cards, numerals at least 140 px, nothing in the bottom 420 px or right 130 px; universal safe box x 70-950, y 220-1500.
+8. Text at least 44 px on cards, numerals at least 140 px, nothing in the bottom 420 px or right 130 px; universal safe box x 70-950, y 220-1500. Above it, the top logo zone (y 120-220) belongs to the persistent top logo only; hook headline, progress rail and takeover content start at y 236 or lower.
 9. After `reel-motion` resolves the beat map: `python $SKILLS/reel-director/scripts/beat_audit.py --beatmap beatmap.json --cues cues.json --camera camera_plan.json`. It fails on a late first word, no hook visual at frame 0, a takeover in the first second, any 4 s gap without a visual change, takeovers over 1.5 s (one up to 2.5 s is a warning); it warns on less than 2 s of face between takeovers, overlapping cards and beats under 0.6 s.
 
 ## Running builders in parallel (stage 8)

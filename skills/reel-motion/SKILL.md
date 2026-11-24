@@ -16,10 +16,11 @@ remotion/                        Remotion 4.0.542 project (all @remotion/* pinne
   src/theme.ts                   colour, type, zone, surface, motion, camera and caption tokens
   src/lib/brand.ts               the brand file (alias target) and brandAsset()/brandLogo() for public assets
   src/fonts.ts                   local fonts via @remotion/fonts + load assertion (render fails if a face is missing)
-  src/Reel.tsx                   Camera -> BeatLayer -> Captions (captions always last)
+  src/Reel.tsx                   Camera -> BeatLayer -> TopLogo -> Captions (captions always last)
   src/components/Camera.tsx      OffthreadVideo with scale/translate keys, origin at the face centre
   src/components/Captions.tsx    caption pages and word reveal
   src/components/BeatLayer.tsx   one Sequence per beat; parses props with the component's schema
+  src/components/TopLogo.tsx     persistent top-center brand mark (props `topLogo`)
   src/components/registry.ts     component name -> defineBeat(schema, Component)
   src/components/beats/*.tsx     one file per beat component (default export + `schema`)
   src/components/ui/             shared primitives: Card, Tile, Pill, Kicker, Icon, AccentText, SafeArea, motion hooks
@@ -54,7 +55,7 @@ Python scripts run under `python -I` (they add their own folder to `sys.path`).
 
 The brand is a folder with `brand.json` and `assets/fonts`, `assets/logos` (see the bundled `../mailinfra-brand`). Set `REEL_BRAND=/path/to/brand-folder` to use another one; unset, the bundled brand is used. `render.sh` passes it to the webpack alias (`scripts/brand-webpack.mjs`, used by `remotion.config.ts` and `stills.mjs`) and to `prepare_public.sh`. The other brand's `brand.json` must have the same keys as the bundled one (TypeScript types come from it).
 
-`prepare_public.sh <public-dir> [brand-dir]` copies `brand.json`, `fonts/` and `logos/` into `<public-dir>/.reel-motion-brand/` and touches nothing else. The folder carries a marker file; a folder of that name without the marker is never replaced. In components, load brand files with `brandAsset("logos/logo.svg")` or `brandLogo("primary")` from `src/lib/brand.ts`, never with a hard-coded path.
+`prepare_public.sh <public-dir> [brand-dir]` copies `brand.json`, `fonts/` and `logos/` into `<public-dir>/.reel-motion-brand/` and touches nothing else. The folder carries a marker file; a folder of that name without the marker is never replaced. In components, load brand files with `brandAsset("logos/mailinfra-logo-white.svg")` or `brandLogo("white")` from `src/lib/brand.ts`, never with a hard-coded path. Logo keys come from the brand's `logos` (bundled brand: `white`, `onDark`, `color`, `iconWhite`).
 
 ## Workflow
 
@@ -67,7 +68,7 @@ The brand is a folder with `brand.json` and `assets/fonts`, `assets/logos` (see 
               {"t": {"@word": "third"}, "ease": "hold"}]}
    ```
    The timeline is split into visual shots at `cues.cuts` and at any `cues.needs_punch` time (`[t, ...]` or `[{t}]`, or `"needs_punch": true` on a segment: a jump inside a take that a punch has to hide). `clips` keys match a substring of the shot's clip name. Every shot starts with a `cut` key; consecutive shots of the same clip alternate through `states`; `shots` overrides one shot by index. After the moves are applied, every cut whose scale is within `--min-cut-change` (0.03) of the scale before it is forced up (or down near the ceiling) by `--punch-step` (0.06), and the shot's relative moves follow it. Then `python -I scripts/plan_camera.py --cues cues.json --shots shots.json --out camera_plan.json` and read its warnings (forced punches, edge clamps with the scale that would allow the requested offset, close pushes).
-2. Write a beat map source: `{"beats": [{id, component, mode, from, to, props, modeFrom?, modeTo?}], "accents": [...]}`. Any time, anywhere (including inside `props`), may be an anchor resolved against `cues.json`:
+2. Write a beat map source: `{"beats": [{id, component, mode, from, to, props, modeFrom?, modeTo?}], "accents": [...], "topLogo": {...}}` (`topLogo` is optional, see Top logo; `resolve_beatmap.py` and `build_props.py` pass it through to the props). Any time, anywhere (including inside `props`), may be an anchor resolved against `cues.json`:
    - `{"@word": "phrase", "n": 1, "edge": "start"|"end", "offset": -0.1}`: the n-th occurrence of a word or phrase (punctuation and case ignored).
    - `{"@keyword": "authent", "n": 1}`: the n-th word starting with that stem (survives caption corrections such as plural or tense).
    - `{"@cutBefore": "phrase"}`: the last cut at or before the phrase starts (cuts up to 0.12 s after the word onset count, set `snap` to change).
@@ -81,6 +82,42 @@ The brand is a folder with `brand.json` and `assets/fonts`, `assets/logos` (see 
 5. Full pass: `bash scripts/render.sh --props props.json --public-dir <dir> --out <dir>/out/gfx.mp4 --concurrency 4`. It always passes `--muted --color-space=bt709 --crf=14 --x264-preset=medium --pixel-format=yuv420p`, records the A-roll md5 in `<out>.aroll.md5`, and fails if the A-roll changed during the render or the frame count differs from `round(durationSec * fps)`. Re-run steps 1 to 3 whenever `cues.json` or `words.out.json` change; a render from stale props drifts after the first changed cut.
 
 The CLI symlinks the public dir into the bundle (no copy), so pointing `--public-dir` at the reel work folder is cheap.
+
+## Top logo
+
+`TopLogo` draws the brand mark persistently at top-center, above every beat (navy takeovers included) and below the captions. It is off unless the props enable it, so props without `topLogo` render as before. Props (`topLogo` in the beat map source or `props.json`, times in absolute output seconds, anchors allowed in the source):
+
+```json
+"topLogo": {
+  "enabled": true,
+  "logo": "white",
+  "widthPx": 320,
+  "centerY": 170,
+  "ranges": [{"from": 0.24, "to": {"@end": true, "offset": 2.5}}],
+  "hideDuring": ["EndCard"],
+  "enterFrames": 8,
+  "exitFrames": 5,
+  "slidePx": 14,
+  "shadow": 1,
+  "scrim": 0.22
+}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | draw the layer at all |
+| `logo` | `"white"` | brand logo key or asset path; always the white mark on footage and navy |
+| `widthPx` | brand `layout.topLogo.widthPx` (320) | 280 to 400 |
+| `centerY` | brand `layout.topLogo.centerY` (170) | vertical centre, kept inside y 120 to 220 |
+| `ranges` | `[]` (whole reel) | visible windows `{from, to}` in seconds; each one fades and slides in over `enterFrames` at `from` and fades out over `exitFrames` before `to` |
+| `hideDuring` | `["EndCard"]` | component names whose beat windows are cut out of the ranges (the logo fades out before the beat starts and back in after it ends) |
+| `slidePx` | 14 | downward slide of the entrance |
+| `shadow` | 1 | strength of the soft dark drop shadow (0 to 1) |
+| `scrim` | 0.22 | opacity of a soft dark radial glow behind the mark, so the white mark reads on bright walls (0 to switch off) |
+
+The logo must be fully in by 1.0 s (`build_props.py` fails otherwise): start the first range at 0 to 0.68 s. Keep the hook headline, progress rail and any other top graphic at y 236 or lower and look at stills where the hook, the rail and each takeover are on screen.
+
+`LogoPop` (`card` `cream` or `navy`; the logo defaults to `color` on cream and `white` on navy) animates the icon first and the wordmark after it, split at the brand's `logoMark.iconSplit` (`markSplit: null` pops the whole mark at once). `EndCard` uses the `color` mark (default `logoWidthPx` 640); its `handoff` takes the pop's `card`, `widthPx` and `centerY`, and a navy pop card fades to cream while the white mark crossfades to the colour mark.
 
 ## Camera keys
 
@@ -104,6 +141,7 @@ Graphics never use the bottom 420 px or the right 130 px. Zones (`zones` in `the
 | headline | x 70 to 950, y 236 to 440 |
 | rail | from the brand's `layout.rail` (x 70, y 236, three 64x10 segments) |
 | takeoverBand | x 70 to 950, y 380 to 1060 (leaves y 1180 free for captions) |
+| topLogo | x 70 to 950, y 120 to 220 (brand `layout.topLogo`): reserved for the persistent top logo, nothing else is drawn there |
 
 | Mode | Speaker | Graphic zone | Captions |
 |---|---|---|---|
@@ -141,7 +179,8 @@ Graphics never use the bottom 420 px or the right 130 px. Zones (`zones` in `the
 - Counters such as "01/11", timecodes, "n/3" labels
 - Invented numbers, prices or percentages (only figures in the brand's approved claims list)
 - Text under 44 px on cards (36 px only for a mono code line)
-- A colour flood between every beat; a persistent logo bug; a watermark
+- A colour flood between every beat; a logo bug in a corner; a watermark; any logo other than the brand's files
+- Anything in the top logo zone (y 120 to 220) except `TopLogo`
 - Recreated third-party UI (search pages, mail clients, platform chrome)
 - Anything in the bottom 420 px or right 130 px; captions over the mouth
 - A red MISSING or BAD PROPS box (a beat names an unregistered component, or its props fail the schema)

@@ -2,8 +2,12 @@ import { layout, surface, zones } from "../../../theme";
 import type { Box } from "../../ui";
 import { placeLogoCentered, type LogoMeta, type LogoPlacement } from "./logo";
 
+export type LogoCard = "cream" | "navy";
+
+export const logoForCard = (card: LogoCard) => (card === "navy" ? "white" : "color");
+
 export const logoPopDefaults = {
-  logo: "primary",
+  card: "cream" as LogoCard,
   widthPx: 720,
   centerY: Math.round((zones.card.y0 + zones.card.y1) / 2),
 };

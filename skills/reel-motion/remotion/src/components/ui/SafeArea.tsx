@@ -53,6 +53,7 @@ const guideColors: Record<ZoneName, string> = {
   headline: "rgba(255,255,0,0.8)",
   rail: "rgba(0,255,0,0.8)",
   takeoverBand: "rgba(255,128,0,0.6)",
+  topLogo: "rgba(255,255,255,0.8)",
 };
 
 export const SafeAreaGuides = () => (

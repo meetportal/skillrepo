@@ -10,6 +10,7 @@ export const layout = {
   cardBox: brand.layout.cardBox,
   captionY: brand.layout.captionY,
   rail: brand.layout.rail,
+  topLogo: brand.layout.topLogo,
   bottomReservedPx: 420,
   rightReservedPx: 130,
 };
@@ -60,6 +61,7 @@ export const zones = {
     y1: brand.layout.rail.y + 40,
   },
   takeoverBand: { x0: brand.layout.safe.x0, x1: brand.layout.safe.x1, y0: 380, y1: 1060 },
+  topLogo: { x0: brand.layout.topLogo.x0, x1: brand.layout.topLogo.x1, y0: brand.layout.topLogo.y0, y1: brand.layout.topLogo.y1 },
 };
 
 export const surface = {

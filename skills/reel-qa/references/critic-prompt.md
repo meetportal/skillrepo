@@ -39,7 +39,10 @@ Judge against these standards (they are the house rules, not suggestions):
    larger; nothing in the bottom 420 px or the right 130 px; colour meanings
    consistent (red = problem, green = fixed, orange = emphasis); no invented
    numbers, prices or percentages; no recreated third-party UI; no watermark;
-   no permanent logo bug; no "01/11"-style counters.
+   no logo bug in a corner; no "01/11"-style counters. The brand mark (the
+   brand's own logo file) is expected at top-center for the whole talking
+   section and must not collide with anything; logo artwork that differs from
+   the brand's logo files is a BLOCKER.
 6. Layout: a graphic never covers the face unless it is a deliberate full-frame
    takeover of 1.5 s or less; captions and graphics never collide.
 7. End: the last frame loops cleanly into frame 0; the call to action is
