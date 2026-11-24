@@ -28,13 +28,26 @@ def clip_name(path):
     return Path(path).stem
 
 
+def audio_channels(path):
+    result = run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", str(path)])
+    return int(result.stdout.decode().strip() or 1)
+
+
+def mono_fold(channel_count):
+    if channel_count == 1:
+        return "pan=mono|c0=c0"
+    weight = 1.0 / channel_count
+    return "pan=mono|c0=" + "+".join(f"{weight:.6g}*c{index}" for index in range(channel_count))
+
+
 def decode_audio(path, sample_rate=16000, channels=1, start=None, end=None):
     cmd = ["ffmpeg", "-nostdin", "-v", "error"]
     if start is not None:
         cmd += ["-ss", f"{start:.3f}"]
     if end is not None:
         cmd += ["-to", f"{end:.3f}"]
-    cmd += ["-i", str(path), "-map", "0:a:0", "-vn", "-ac", str(channels), "-ar", str(sample_rate), "-f", "f32le", "-"]
+    layout = ["-af", mono_fold(audio_channels(path))] if channels == 1 else ["-ac", str(channels)]
+    cmd += ["-i", str(path), "-map", "0:a:0", "-vn", *layout, "-ar", str(sample_rate), "-f", "f32le", "-"]
     samples = np.frombuffer(run(cmd).stdout, dtype=np.float32)
     if channels > 1:
         samples = samples.reshape(-1, channels)

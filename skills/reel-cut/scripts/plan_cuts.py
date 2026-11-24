@@ -83,6 +83,8 @@ def manual_ranges(config_ranges, fps):
             entry["video_in"] = to_frame(item["video_in"], fps)
         if "video_out" in item:
             entry["video_out"] = to_frame(item["video_out"], fps)
+        if item.get("holds"):
+            entry["holds"] = [{"from": to_frame(h["from"], fps), "to": to_frame(h["to"], fps), "frame": to_frame(h["frame"], fps)} for h in item["holds"]]
         ranges.append(entry)
     return ranges
 
@@ -98,9 +100,18 @@ def joint_is_clean(ranges, index, offset, previous_offset, windows, durations, r
     if video_in_right >= right["out"]:
         return False
     fps = rules["fps"]
-    left_bad = windows_hit(video_out_left - guard, video_out_left, windows.get(left["clip"], []), fps)
-    right_bad = windows_hit(video_in_right, video_in_right + guard, windows.get(right["clip"], []), fps)
+    left_frames = [displayed_frame(left, frame) for frame in range(video_out_left - guard, video_out_left)]
+    right_frames = [displayed_frame(right, frame) for frame in range(video_in_right, video_in_right + guard)]
+    left_bad = any(windows_hit(frame, frame + 1, windows.get(left["clip"], []), fps) for frame in left_frames)
+    right_bad = any(windows_hit(frame, frame + 1, windows.get(right["clip"], []), fps) for frame in right_frames)
     return not left_bad and not right_bad
+
+
+def displayed_frame(item, frame):
+    for hold in item.get("holds", []):
+        if hold["from"] <= frame < hold["to"]:
+            return hold["frame"]
+    return frame
 
 
 def assign_offsets(ranges, windows, durations, rules, auto_offsets, warnings):
@@ -132,7 +143,7 @@ def assign_offsets(ranges, windows, durations, rules, auto_offsets, warnings):
         if "video_out" in last and last["video_out"] != last["out"]:
             raise SystemExit("last range: video_out must equal out")
         fps = rules["fps"]
-        if windows_hit(first["in"], first["in"] + rules["guard_frames"], windows.get(first["clip"], []), fps):
+        if any(windows_hit(displayed_frame(first, frame), displayed_frame(first, frame) + 1, windows.get(first["clip"], []), fps) for frame in range(first["in"], first["in"] + rules["guard_frames"])):
             warnings.append("first frames of the reel sit on a blink or soft window")
 
 
@@ -165,7 +176,7 @@ def validate_audio(ranges, words_by_clip, rules, fps):
 
 def envelope_db(path, sample_rate=16000):
     result = subprocess.run(
-        ["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0", "-ac", "1", "-ar", str(sample_rate), "-f", "f32le", "-"],
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0", "-af", "pan=mono|c0=0.5*c0+0.5*c1", "-ar", str(sample_rate), "-f", "f32le", "-"],
         check=True, capture_output=True,
     )
     samples = np.frombuffer(result.stdout, np.float32).astype(np.float64)
@@ -257,13 +268,13 @@ def main():
     assign_offsets(ranges, windows, durations, rules, config.get("auto_offsets", True), warnings)
     errors, pad_warnings, dropped = validate_audio(ranges, words_by_clip, rules, fps)
     warnings.extend(pad_warnings)
-    warnings.extend(edge_energy_warnings(ranges, clip_paths, fps, rules["fade"], rules["edge_energy_margin_db"]))
+    warnings.extend(edge_energy_warnings(ranges, clip_paths, fps, rules["crossfade"] / 2, rules["edge_energy_margin_db"]))
     edl = expand_to_edl(ranges, clip_paths, fps)
     add_quotes(edl, words_by_clip, clip_paths)
     report = {
         "mode": mode,
         "rules": rules,
-        "ranges": [{"clip": r["clip"], "in": seconds(r["in"], fps), "out": seconds(r["out"], fps), "joint_offset_frames": r["joint_offset"], "beat": r.get("beat", "")} for r in ranges],
+        "ranges": [{"clip": r["clip"], "in": seconds(r["in"], fps), "out": seconds(r["out"], fps), "joint_offset_frames": r["joint_offset"], "beat": r.get("beat", ""), "holds": [{k: seconds(v, fps) for k, v in h.items()} for h in r.get("holds", [])]} for r in ranges],
         "joints": joint_report(ranges, words_by_clip, fps),
         "errors": errors,
         "warnings": warnings,

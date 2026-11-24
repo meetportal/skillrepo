@@ -43,7 +43,7 @@ def main():
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--language", default="en")
     parser.add_argument("--beam-size", type=int, default=5)
-    parser.add_argument("--prompt", default="", help="key terms and brand names, e.g. 'Acme. SPF, DKIM, DMARC.'")
+    parser.add_argument("--prompt", default="", help="key terms and brand names, e.g. 'Acme. API, SDK, OAuth.'")
     args = parser.parse_args()
     started = time.time()
     model = load_model(args.model, args.compute_type, args.threads)

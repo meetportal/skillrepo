@@ -83,8 +83,8 @@ def summarise(path, dual_mono_seconds):
         notes.append("full range source: convert to tv range exactly once (scale=in_range=full:out_range=tv)")
     dual = summary.get("audio", {}).get("dual_mono", {})
     if dual.get("channels_identical"):
-        flags.append("-ac 1")
-        notes.append("dual-mono audio: treat as one channel")
+        flags.append("-af pan=mono|c0=0.5*c0+0.5*c1")
+        notes.append("dual-mono audio: fold to one channel with pan=mono|c0=0.5*c0+0.5*c1 (never -ac 1, which sums the two copies)")
     if summary.get("video", {}).get("rotation_metadata"):
         notes.append("rotation metadata present: check that the decoder auto-rotates before adding transpose")
     elif summary.get("video", {}).get("landscape_pixels"):

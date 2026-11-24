@@ -17,7 +17,7 @@ DEFAULT_RULES = {
     "clip_tail_pad": 0.10,
     "min_head_pad": 0.04,
     "min_tail_pad": 0.05,
-    "fade": 0.03,
+    "crossfade": 0.016,
     "edge_energy_margin_db": 15.0,
     "guard_frames": 3,
     "max_offset_frames": 6,
@@ -85,6 +85,21 @@ def windows_hit(frame_start, frame_end, windows, fps):
     return False
 
 
+def hold_breakpoints(item, video_start, video_src_start):
+    points = []
+    for hold in item.get("holds", []):
+        for edge in (hold["from"], hold["to"]):
+            points.append(video_start + edge - video_src_start)
+    return points
+
+
+def hold_frame(item, src_start, src_end):
+    for hold in item.get("holds", []):
+        if hold["from"] <= src_start and src_end <= hold["to"]:
+            return hold["frame"]
+    return None
+
+
 def expand_to_edl(ranges, clip_paths, fps):
     audio_spans, video_spans = [], []
     cursor = 0
@@ -97,28 +112,27 @@ def expand_to_edl(ranges, clip_paths, fps):
         video_spans.append((video_start, video_end, item["clip"], item["in"] - offsets[index], index))
         cursor += length
     starts = {0} | {s[0] for s in audio_spans} | {s[0] for s in video_spans}
+    for span in video_spans:
+        starts |= set(hold_breakpoints(ranges[span[4]], span[0], span[3]))
     breakpoints = sorted(point for point in starts if 0 <= point < cursor) + [cursor]
-    pieces = []
+    edl_ranges = []
     for start, end in zip(breakpoints[:-1], breakpoints[1:]):
         audio = next(s for s in audio_spans if s[0] <= start < s[1])
         video = next(s for s in video_spans if s[0] <= start < s[1])
-        pieces.append({
-            "v_clip": video[2], "v_in": video[3] + start - video[0], "v_out": video[3] + end - video[0],
-            "a_clip": audio[2], "a_in": audio[3] + start - audio[0], "a_out": audio[3] + end - audio[0],
-            "source": audio[4], "out_start": start, "out_end": end,
-        })
-    edl_ranges = []
-    for piece in pieces:
-        source = ranges[piece["source"]]
+        v_in, v_out = video[3] + start - video[0], video[3] + end - video[0]
+        a_in, a_out = audio[3] + start - audio[0], audio[3] + end - audio[0]
         entry = {
-            "clip": clip_paths[piece["v_clip"]],
-            "v_in": seconds(piece["v_in"], fps), "v_out": seconds(piece["v_out"], fps),
-            "a_in": seconds(piece["a_in"], fps), "a_out": seconds(piece["a_out"], fps),
-            "beat": source.get("beat", ""),
+            "clip": clip_paths[video[2]],
+            "v_in": seconds(v_in, fps), "v_out": seconds(v_out, fps),
+            "a_in": seconds(a_in, fps), "a_out": seconds(a_out, fps),
+            "beat": ranges[audio[4]].get("beat", ""),
             "quote": "",
         }
-        if piece["a_clip"] != piece["v_clip"]:
-            entry["a_clip"] = clip_paths[piece["a_clip"]]
+        frame = hold_frame(ranges[video[4]], v_in, v_out)
+        if frame is not None:
+            entry["v_hold"] = seconds(frame, fps)
+        if audio[2] != video[2]:
+            entry["a_clip"] = clip_paths[audio[2]]
         edl_ranges.append(entry)
     return {"fps": fps, "ranges": edl_ranges, "duration": seconds(cursor, fps)}
 
@@ -127,18 +141,47 @@ def range_audio_clip(entry):
     return entry.get("a_clip", entry["clip"])
 
 
-def video_segments(edl):
+def shown_frames(entry, fps):
+    frames_in, frames_out = to_frame(entry["v_in"], fps), to_frame(entry["v_out"], fps)
+    if "v_hold" in entry:
+        held = to_frame(entry["v_hold"], fps)
+        return held, held, frames_out - frames_in
+    return frames_in, frames_out - 1, frames_out - frames_in
+
+
+def video_pieces(edl):
     fps = edl["fps"]
-    segments, cursor = [], 0
+    pieces, cursor = [], 0
     for entry in edl["ranges"]:
-        frames_in, frames_out = to_frame(entry["v_in"], fps), to_frame(entry["v_out"], fps)
-        length = frames_out - frames_in
-        if segments and segments[-1]["clip"] == entry["clip"] and segments[-1]["src_out"] == frames_in:
-            segments[-1]["src_out"] = frames_out
-            segments[-1]["out_end"] = cursor + length
-        else:
-            segments.append({"clip": entry["clip"], "src_in": frames_in, "src_out": frames_out, "out_start": cursor, "out_end": cursor + length})
+        first, last, length = shown_frames(entry, fps)
+        pieces.append({"clip": entry["clip"], "first": first, "last": last, "out_start": cursor, "out_end": cursor + length, "hold": "v_hold" in entry})
         cursor += length
+    return pieces
+
+
+def video_segments(edl):
+    segments = []
+    for piece in video_pieces(edl):
+        previous = segments[-1] if segments else None
+        continuous = previous is not None and previous["clip"] == piece["clip"] and piece["first"] - previous["last"] in (0, 1)
+        if continuous:
+            previous["last"] = piece["last"]
+            previous["out_end"] = piece["out_end"]
+            previous["src_in"] = min(previous["src_in"], piece["first"])
+            previous["src_out"] = max(previous["src_out"], piece["last"] + 1)
+            if piece["hold"] and previous["holds"] and previous["holds"][-1][1] == piece["out_start"] and piece["first"] == previous["held"]:
+                previous["holds"][-1][1] = piece["out_end"]
+            elif piece["hold"]:
+                previous["holds"].append([piece["out_start"], piece["out_end"]])
+            previous["held"] = piece["first"] if piece["hold"] else None
+        else:
+            segments.append({
+                "clip": piece["clip"], "first": piece["first"], "last": piece["last"],
+                "src_in": piece["first"], "src_out": piece["last"] + 1,
+                "out_start": piece["out_start"], "out_end": piece["out_end"],
+                "holds": [[piece["out_start"], piece["out_end"]]] if piece["hold"] else [],
+                "held": piece["first"] if piece["hold"] else None,
+            })
     return segments
 
 

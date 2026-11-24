@@ -5,3 +5,6 @@ opencv-python
 pyyaml
 scipy
 soundfile
+yt-dlp
+torch
+torchaudio
