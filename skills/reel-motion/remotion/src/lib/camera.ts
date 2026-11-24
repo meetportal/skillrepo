@@ -20,6 +20,9 @@ const progressOf = (key: CameraKey, frame: number, fps: number, nextKeyFrame: nu
   if (key.ease === "cut") {
     return 1;
   }
+  if (key.ease === "hold") {
+    return 0;
+  }
   if (key.ease === "push") {
     return cameraTokens.pushEase(clamp((frame - startFrame) / cameraTokens.pushFrames, 0, 1));
   }

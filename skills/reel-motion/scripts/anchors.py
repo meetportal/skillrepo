@@ -3,6 +3,9 @@ import re
 import sys
 from pathlib import Path
 
+ANCHOR_KEYS = ("@word", "@keyword", "@cutBefore", "@cutAfter", "@cut", "@end")
+CUT_SNAP_SEC = 0.12
+
 
 class AnchorError(ValueError):
     pass
@@ -14,6 +17,10 @@ def normalize(text):
 
 def load_json(path):
     return json.loads(Path(path).read_text())
+
+
+def warn(message):
+    print(f"warning: {message}", file=sys.stderr)
 
 
 def find_phrase(words, phrase, occurrence):
@@ -38,19 +45,56 @@ def find_phrase(words, phrase, occurrence):
     raise AnchorError(f"phrase {phrase!r} occurrence {occurrence} not found ({seen} found)")
 
 
+def find_keyword(words, keyword, occurrence):
+    stem = normalize(keyword)
+    if not stem:
+        raise AnchorError(f"empty keyword {keyword!r}")
+    matches = [word for word in words if normalize(word["text"]).startswith(stem)]
+    if len(matches) < occurrence:
+        raise AnchorError(f"keyword {keyword!r} occurrence {occurrence} not found ({len(matches)} found)")
+    return matches[occurrence - 1]
+
+
+def cut_before(cuts, time, snap):
+    candidates = [cut for cut in cuts if cut <= time + snap]
+    if not candidates:
+        raise AnchorError(f"no cut at or before {time:.3f}")
+    return max(candidates)
+
+
+def cut_after(cuts, time, snap):
+    candidates = [cut for cut in cuts if cut >= time - snap]
+    if not candidates:
+        raise AnchorError(f"no cut at or after {time:.3f}")
+    return min(candidates)
+
+
 def resolve_anchor(anchor, cues):
     offset = float(anchor.get("offset", 0.0))
+    occurrence = int(anchor.get("n", 1))
+    snap = float(anchor.get("snap", CUT_SNAP_SEC))
+    words = cues["words"]
     if "@word" in anchor:
-        first, last = find_phrase(cues["words"], anchor["@word"], int(anchor.get("n", 1)))
+        first, last = find_phrase(words, anchor["@word"], occurrence)
         edge = anchor.get("edge", "start")
         if edge not in ("start", "end"):
             raise AnchorError(f"edge must be start or end, got {edge!r}")
         base = first["start"] if edge == "start" else last["end"]
+    elif "@keyword" in anchor:
+        word = find_keyword(words, anchor["@keyword"], occurrence)
+        base = word["start"] if anchor.get("edge", "start") == "start" else word["end"]
+    elif "@cutBefore" in anchor:
+        first, _ = find_phrase(words, anchor["@cutBefore"], occurrence)
+        base = cut_before(cues["cuts"], first["start"], snap)
+    elif "@cutAfter" in anchor:
+        _, last = find_phrase(words, anchor["@cutAfter"], occurrence)
+        base = cut_after(cues["cuts"], last["end"], snap)
     elif "@cut" in anchor:
         index = int(anchor["@cut"])
         cuts = cues["cuts"]
         if not 1 <= index <= len(cuts):
             raise AnchorError(f"cut {index} out of range 1..{len(cuts)}")
+        warn(f"raw cut index {{'@cut': {index}}} breaks after a re-cut; use {{'@cutBefore': '<word>'}} or {{'@cutAfter': '<word>'}}")
         base = cuts[index - 1]
     elif "@end" in anchor:
         base = cues["duration"]
@@ -60,7 +104,7 @@ def resolve_anchor(anchor, cues):
 
 
 def is_anchor(value):
-    return isinstance(value, dict) and any(key in value for key in ("@word", "@cut", "@end"))
+    return isinstance(value, dict) and any(key in value for key in ANCHOR_KEYS)
 
 
 def resolve_tree(value, cues):
@@ -76,7 +120,9 @@ def resolve_tree(value, cues):
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Resolve @word/@cut/@end time anchors in any JSON file against cues.json.")
+    parser = argparse.ArgumentParser(
+        description="Resolve time anchors (@word, @keyword, @cutBefore, @cutAfter, @cut, @end) in any JSON file against cues.json."
+    )
     parser.add_argument("--cues", required=True, help="cues.json on the output timeline")
     parser.add_argument("--input", required=True, help="JSON with anchors")
     parser.add_argument("--out", required=True, help="resolved JSON output path")

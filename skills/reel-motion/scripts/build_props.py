@@ -5,10 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from anchors import AnchorError, load_json, resolve_tree
 
 MODES = {"talk", "card", "takeover", "hidden"}
-EASES = {"cut", "push", "creep"}
+EASES = {"cut", "push", "creep", "hold"}
 
 
 def probe_duration(path):
@@ -77,6 +79,24 @@ def check_words(words, duration, problems):
         previous_start = word["startMs"]
 
 
+def normalize_accents(accents, problems):
+    normalized = []
+    for accent in accents:
+        if isinstance(accent, str):
+            normalized.append({"text": accent})
+        elif isinstance(accent, dict) and isinstance(accent.get("text"), str):
+            entry = {"text": accent["text"]}
+            if "n" in accent:
+                if not isinstance(accent["n"], int) or accent["n"] < 1:
+                    problems.append(f"accent {accent!r}: n must be a positive integer")
+                    continue
+                entry["n"] = accent["n"]
+            normalized.append(entry)
+        else:
+            problems.append(f"accent {accent!r} must be a string or {{text, n?}}")
+    return normalized
+
+
 def main():
     parser = argparse.ArgumentParser(description="Merge cues, words, beatmap and camera plan into Remotion props for the Reel composition.")
     parser.add_argument("--cues", required=True)
@@ -112,6 +132,7 @@ def main():
     check_beats(beats, duration, problems)
     check_modes(modes, problems)
     check_words(words, duration, problems)
+    accents = normalize_accents(beatmap.get("accents", []), problems)
     if problems:
         sys.exit("props invalid:\n  " + "\n  ".join(problems))
 
@@ -133,7 +154,7 @@ def main():
         ],
         "captionModes": modes,
         "beats": beats,
-        "accents": beatmap.get("accents", []),
+        "accents": accents,
     }
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(props, indent=1) + "\n")

@@ -1,5 +1,5 @@
 import { Easing } from "remotion";
-import brand from "../../../mailinfra-brand/brand.json";
+import { brand } from "./lib/brand";
 
 export const colors = brand.colors;
 
@@ -27,7 +27,9 @@ export const type = {
     fontSize: 68,
     lineHeight: 1.18,
     color: colors.text,
-    textShadow: "0 4px 16px rgba(0,0,0,0.6)",
+    textShadow: "0 2px 4px rgba(0,0,0,0.85), 0 0 2px rgba(0,0,0,0.9), 0 4px 14px rgba(0,0,0,0.55)",
+    strokeColor: "rgba(8,16,36,0.75)",
+    strokePx: 5,
   },
   captionAccent: {
     fontFamily: fontFamilies.accent,
@@ -35,6 +37,9 @@ export const type = {
     fontWeight: 600,
     scale: 1.08,
     color: colors.accent,
+    textShadow: "0 2px 3px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,1), 0 0 10px rgba(8,16,36,0.75), 0 4px 14px rgba(0,0,0,0.6)",
+    strokeColor: "rgba(8,16,36,0.9)",
+    strokePx: 6,
   },
   hook: { fontFamily: fontFamilies.sans, fontWeight: 800, fontSize: 120 },
   slam: { fontFamily: fontFamilies.sans, fontWeight: 800, fontSize: 76 },
@@ -42,6 +47,31 @@ export const type = {
   cardMinPx: 44,
   numeralMinPx: 140,
   monoMinPx: 36,
+};
+
+export const zones = {
+  safe: { x0: brand.layout.safe.x0, x1: brand.layout.safe.x1, y0: brand.layout.safe.y0, y1: brand.layout.safe.y1 },
+  card: { x0: brand.layout.cardBox.x0, x1: brand.layout.cardBox.x1, y0: brand.layout.cardBox.y0, y1: brand.layout.cardBox.y1 },
+  headline: { x0: brand.layout.safe.x0, x1: brand.layout.safe.x1, y0: 236, y1: 440 },
+  rail: {
+    x0: brand.layout.rail.x,
+    x1: brand.layout.rail.x + brand.layout.rail.count * brand.layout.rail.segmentW + (brand.layout.rail.count - 1) * 16,
+    y0: brand.layout.rail.y,
+    y1: brand.layout.rail.y + 40,
+  },
+  takeoverBand: { x0: brand.layout.safe.x0, x1: brand.layout.safe.x1, y0: 380, y1: 1060 },
+};
+
+export const surface = {
+  cardRadius: 36,
+  tileRadius: 24,
+  pillRadius: 999,
+  cardPadding: 40,
+  borderPx: 2,
+  cardGradient: `linear-gradient(180deg, ${brand.colors.navyTop} 0%, ${brand.colors.navyBottom} 100%)`,
+  takeoverGradient: `linear-gradient(180deg, ${brand.colors.navyTop} 0%, ${brand.colors.navyBottom} 100%)`,
+  cardShadow: "0 18px 48px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.35)",
+  textShadow: "0 2px 6px rgba(0,0,0,0.5)",
 };
 
 export const easeOutExpo = Easing.bezier(0.16, 1, 0.3, 1);
@@ -86,6 +116,7 @@ export const captionRules = {
   revealFrames: 4,
   risePx: 6,
   hookMaxWords: 3,
+  bodyMinWords: 2,
   bodyMaxWords: 4,
   maxLines: 2,
   maxCharsPerLine: 22,

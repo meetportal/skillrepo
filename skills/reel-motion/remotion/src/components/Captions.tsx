@@ -2,9 +2,9 @@ import { measureText } from "@remotion/layout-utils";
 import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill, continueRender, delayRender, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontsReady } from "../fonts";
-import { buildCaptionPages, type CaptionPage, type PageToken } from "../lib/captionPages";
+import { buildCaptionPages, splitPunctuation, type CaptionPage, type PageToken } from "../lib/captionPages";
 import { captionRules, layout, motion, type } from "../theme";
-import type { CaptionMode, CaptionModeName, CaptionWord } from "../types";
+import type { AccentSpec, CaptionMode, CaptionModeName, CaptionWord } from "../types";
 
 const wordGapEm = 0.26;
 
@@ -21,26 +21,50 @@ const modeAt = (modes: CaptionMode[], timeSec: number): CaptionModeName => {
 const pageUsesCardStage = (modes: CaptionMode[], startSec: number, endSec: number) =>
   modes.some((mode) => mode.mode === "card" && mode.from < endSec && mode.to > startSec);
 
-const tokenFont = (token: PageToken, scale: number) => {
-  const size = type.caption.fontSize * scale * (token.accent ? type.captionAccent.scale : 1);
-  return token.accent
-    ? { fontFamily: type.captionAccent.fontFamily, fontWeight: type.captionAccent.fontWeight, fontStyle: "italic" as const, fontSize: size }
-    : { fontFamily: type.caption.fontFamily, fontWeight: type.caption.fontWeight, fontStyle: "normal" as const, fontSize: size };
+const baseFont = (scale: number) => ({
+  fontFamily: type.caption.fontFamily,
+  fontWeight: type.caption.fontWeight,
+  fontStyle: "normal" as const,
+  fontSize: type.caption.fontSize * scale,
+});
+
+const accentFont = (scale: number) => ({
+  fontFamily: type.captionAccent.fontFamily,
+  fontWeight: type.captionAccent.fontWeight,
+  fontStyle: "italic" as const,
+  fontSize: type.caption.fontSize * scale * type.captionAccent.scale,
+});
+
+const tokenParts = (token: PageToken) => {
+  if (!token.accent) {
+    return [{ text: token.text, accent: false }];
+  }
+  const { lead, core, trail } = splitPunctuation(token.text);
+  return [
+    { text: lead, accent: false },
+    { text: core, accent: true },
+    { text: trail, accent: false },
+  ].filter((part) => part.text.length > 0);
 };
 
+const measure = (text: string, font: { fontFamily: string; fontWeight: number; fontStyle: "normal" | "italic"; fontSize: number }) =>
+  measureText({
+    text,
+    fontFamily: font.fontFamily,
+    fontSize: font.fontSize,
+    fontWeight: font.fontWeight,
+    validateFontIsLoaded: true,
+    additionalStyles: { fontStyle: font.fontStyle },
+  }).width;
+
 const lineWidth = (line: PageToken[]) =>
-  line.reduce((sum, token, index) => {
-    const font = tokenFont(token, 1);
-    const { width } = measureText({
-      text: token.text,
-      fontFamily: font.fontFamily,
-      fontSize: font.fontSize,
-      fontWeight: font.fontWeight,
-      validateFontIsLoaded: true,
-      additionalStyles: { fontStyle: font.fontStyle },
-    });
-    return sum + width + (index > 0 ? wordGapEm * type.caption.fontSize : 0);
-  }, 0);
+  line.reduce(
+    (sum, token, index) =>
+      sum +
+      tokenParts(token).reduce((width, part) => width + measure(part.text, part.accent ? accentFont(1) : baseFont(1)), 0) +
+      (index > 0 ? wordGapEm * type.caption.fontSize : 0),
+    0,
+  );
 
 const pageScale = (page: CaptionPage) => {
   const widest = Math.max(...page.lines.map(lineWidth));
@@ -58,25 +82,41 @@ const timePages = (pages: CaptionPage[], fps: number, totalFrames: number): Time
   });
 };
 
+const partStyle = (accent: boolean, scale: number) =>
+  accent
+    ? {
+        ...accentFont(scale),
+        color: type.captionAccent.color,
+        textShadow: type.captionAccent.textShadow,
+        WebkitTextStroke: `${type.captionAccent.strokePx * scale}px ${type.captionAccent.strokeColor}`,
+      }
+    : {
+        ...baseFont(scale),
+        color: type.caption.color,
+        textShadow: type.caption.textShadow,
+        WebkitTextStroke: `${type.caption.strokePx * scale}px ${type.caption.strokeColor}`,
+      };
+
 const Word = ({ token, scale, frame, fps }: { token: PageToken; scale: number; frame: number; fps: number }) => {
   const revealStart = Math.round(token.start * fps) - captionRules.leadFrames - 1;
   const progress = interpolate(frame, [revealStart, revealStart + captionRules.revealFrames], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  const font = tokenFont(token, scale);
   return (
     <span
       style={{
-        ...font,
         display: "inline-block",
         whiteSpace: "pre",
-        color: token.accent ? type.captionAccent.color : type.caption.color,
         opacity: progress,
         transform: `translateY(${(1 - motion.ease(progress)) * captionRules.risePx}px)`,
       }}
     >
-      {token.text}
+      {tokenParts(token).map((part, index) => (
+        <span key={index} style={{ ...partStyle(part.accent, scale), paintOrder: "stroke fill" }}>
+          {part.text}
+        </span>
+      ))}
     </span>
   );
 };
@@ -88,7 +128,7 @@ export const Captions = ({
   hookEndSec,
 }: {
   captions: CaptionWord[];
-  accents: string[];
+  accents: AccentSpec[];
   modes: CaptionMode[];
   hookEndSec: number;
 }) => {
@@ -139,7 +179,6 @@ export const Captions = ({
           flexDirection: "column",
           alignItems: "center",
           lineHeight: type.caption.lineHeight,
-          textShadow: type.caption.textShadow,
         }}
       >
         {page.lines.map((line, lineIndex) => (

@@ -21,7 +21,7 @@ export const cuesSchema = z.object({
   cuts: z.array(z.number()),
 });
 
-export const cameraEaseSchema = z.enum(["cut", "push", "creep"]);
+export const cameraEaseSchema = z.enum(["cut", "push", "creep", "hold"]);
 
 export const cameraKeySchema = z.object({
   t: z.number(),
@@ -55,6 +55,11 @@ export const beatSchema = z.object({
   props: z.record(z.string(), z.unknown()),
 });
 
+export const accentSpecSchema = z.union([
+  z.string(),
+  z.object({ text: z.string(), n: z.union([z.number().int().positive(), z.literal("all")]).optional() }),
+]);
+
 export const reelPropsSchema = z.object({
   aroll: z.string(),
   durationSec: z.number().positive(),
@@ -64,7 +69,8 @@ export const reelPropsSchema = z.object({
   captions: z.array(captionSchema),
   captionModes: z.array(captionModeSchema),
   beats: z.array(beatSchema),
-  accents: z.array(z.string()),
+  accents: z.array(accentSpecSchema),
+  guides: z.boolean().optional(),
 });
 
 export type FaceBox = z.infer<typeof faceBoxSchema>;
@@ -76,10 +82,17 @@ export type CaptionWord = z.infer<typeof captionSchema>;
 export type CaptionModeName = z.infer<typeof captionModeNameSchema>;
 export type CaptionMode = z.infer<typeof captionModeSchema>;
 export type Beat = z.infer<typeof beatSchema>;
+export type AccentSpec = z.infer<typeof accentSpecSchema>;
 export type ReelProps = z.infer<typeof reelPropsSchema>;
 
-export type BeatRenderProps = {
+export type BeatContext = {
   beat: Beat;
+  frame: number;
+  durationInFrames: number;
+  fps: number;
+  toFrame: (absoluteSec: number) => number;
 };
 
-export type BeatComponent = ComponentType<BeatRenderProps>;
+export type BeatProps<P> = BeatContext & { props: P };
+
+export type BeatComponent<P> = ComponentType<BeatProps<P>>;

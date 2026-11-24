@@ -3,6 +3,8 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from anchors import AnchorError, load_json, resolve_tree
 
 MODES = ("talk", "card", "takeover", "hidden")

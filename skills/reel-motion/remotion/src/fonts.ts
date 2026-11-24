@@ -1,10 +1,8 @@
 import { loadFont } from "@remotion/fonts";
-import { cancelRender, continueRender, delayRender, staticFile } from "remotion";
-import brand from "../../../mailinfra-brand/brand.json";
+import { cancelRender, continueRender, delayRender } from "remotion";
+import { brand, brandAsset } from "./lib/brand";
 
 type FontSpec = { family: string; weight: string; style: "normal" | "italic"; assetPath: string };
-
-const publicPathFor = (assetPath: string) => staticFile(`brand/${assetPath.replace(/^assets\//, "")}`);
 
 const fontSpecs: FontSpec[] = [
   ...Object.entries(brand.fonts.sans.files).map(([weight, assetPath]) => ({
@@ -38,7 +36,7 @@ const fontsHandle = delayRender("Loading brand fonts");
 
 export const fontsReady = Promise.all(
   fontSpecs.map((spec) =>
-    loadFont({ family: spec.family, url: publicPathFor(spec.assetPath), weight: spec.weight, style: spec.style }),
+    loadFont({ family: spec.family, url: brandAsset(spec.assetPath), weight: spec.weight, style: spec.style }),
   ),
 ).then(assertFontsLoaded);
 

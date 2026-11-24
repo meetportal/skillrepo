@@ -1,6 +1,6 @@
 import { createTikTokStyleCaptions } from "@remotion/captions";
 import { captionRules } from "../theme";
-import type { CaptionWord } from "../types";
+import type { AccentSpec, CaptionWord } from "../types";
 
 export type PageToken = { text: string; start: number; end: number; accent: boolean };
 export type CaptionPage = { tokens: PageToken[]; lines: PageToken[][]; start: number; end: number };
@@ -8,9 +8,38 @@ export type CaptionPage = { tokens: PageToken[]; lines: PageToken[][]; start: nu
 type RawToken = { text: string; start: number; end: number };
 type Span = { first: number; last: number };
 
+export const breakStopWords = new Set([
+  "a", "an", "the", "from", "to", "your", "my", "our", "their", "his", "her", "its",
+  "and", "or", "but", "too", "very", "of", "in", "on", "at", "with", "by", "for", "as",
+  "into", "than", "that", "these", "this", "those", "if", "not", "so", "is", "are", "be",
+  "even", "just", "only", "more", "most", "less",
+]);
+
+export const weakEndWords = new Set([
+  "i", "you", "we", "they", "he", "she", "it", "youll", "well", "theyll", "youre", "were", "theyre", "its",
+  "will", "can", "could", "would", "should", "has", "have", "had", "was", "do", "does", "did",
+  "dont", "doesnt", "isnt", "arent", "wont", "cant", "long",
+]);
+
+const breakCost = {
+  stopWordEnd: 12,
+  weakWordEnd: 5,
+  singleWordPage: 3,
+  hookSingleWordPage: 0.5,
+  shortPage: 6,
+  perPage: 1,
+  gapRewardPerSec: 18,
+  unfittable: 1000,
+};
+
 const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-const endsPhrase = (text: string) => /[,.?!;:]$/.test(text);
+const endsPhrase = (text: string) => /[,.?!;:]["')\]]*$/.test(text);
+
+export const splitPunctuation = (text: string) => {
+  const match = /^(["'([]*)(.*?)([,.?!;:…"')\]]*)$/.exec(text);
+  return { lead: match?.[1] ?? "", core: match?.[2] ?? text, trail: match?.[3] ?? "" };
+};
 
 const tokenize = (captions: CaptionWord[]): RawToken[] => {
   const { pages } = createTikTokStyleCaptions({ captions, combineTokensWithinMilliseconds: Number.MAX_SAFE_INTEGER });
@@ -34,20 +63,37 @@ const matchPhraseAt = (tokens: RawToken[], first: number, target: string): numbe
   return null;
 };
 
-const findAccentSpans = (tokens: RawToken[], accents: string[]): Span[] => {
-  const targets = accents.map(normalize).filter(Boolean).sort((a, b) => b.length - a.length);
+export const normalizeAccents = (accents: AccentSpec[]) =>
+  accents.map((accent) => (typeof accent === "string" ? { text: accent, n: 1 as number | "all" } : { text: accent.text, n: accent.n ?? 1 }));
+
+export const findAccentSpans = (tokens: RawToken[], accents: AccentSpec[]): Span[] => {
+  const taken = new Set<number>();
   const spans: Span[] = [];
-  let index = 0;
-  while (index < tokens.length) {
-    const last = targets.map((target) => matchPhraseAt(tokens, index, target)).find((match) => match !== null);
-    if (last !== undefined && last !== null) {
-      spans.push({ first: index, last });
-      index = last + 1;
-    } else {
-      index += 1;
+  const specs = normalizeAccents(accents)
+    .map((spec) => ({ ...spec, target: normalize(spec.text) }))
+    .filter((spec) => spec.target.length > 0)
+    .sort((a, b) => b.target.length - a.target.length);
+  for (const spec of specs) {
+    let seen = 0;
+    for (let index = 0; index < tokens.length; index++) {
+      const last = matchPhraseAt(tokens, index, spec.target);
+      if (last === null) {
+        continue;
+      }
+      seen += 1;
+      const free = Array.from({ length: last - index + 1 }, (_, offset) => index + offset).every((position) => !taken.has(position));
+      if ((spec.n === "all" || spec.n === seen) && free) {
+        spans.push({ first: index, last });
+        for (let position = index; position <= last; position++) {
+          taken.add(position);
+        }
+      }
+      if (spec.n !== "all" && seen >= spec.n) {
+        break;
+      }
     }
   }
-  return spans;
+  return spans.sort((a, b) => a.first - b.first);
 };
 
 const lineLength = (tokens: RawToken[]) => tokens.reduce((sum, token, index) => sum + token.text.length + (index > 0 ? 1 : 0), 0);
@@ -74,15 +120,14 @@ export const layoutLines = <T extends RawToken>(tokens: T[]): T[][] | null => {
   return best;
 };
 
-const splitIntoPhrases = (tokens: RawToken[], hookEndSec: number): number[][] => {
+const splitIntoPhrases = (tokens: RawToken[]): number[][] => {
   const phrases: number[][] = [];
   let current: number[] = [];
   tokens.forEach((token, index) => {
     const previous = tokens[index - 1];
     if (previous && current.length > 0) {
       const gap = token.start - previous.end;
-      const crossesHookEnd = previous.start < hookEndSec && token.start >= hookEndSec;
-      if (endsPhrase(previous.text) || gap >= captionRules.phrasePauseSec || crossesHookEnd) {
+      if (endsPhrase(previous.text) || gap >= captionRules.phrasePauseSec) {
         phrases.push(current);
         current = [];
       }
@@ -95,64 +140,98 @@ const splitIntoPhrases = (tokens: RawToken[], hookEndSec: number): number[][] =>
   return phrases;
 };
 
-const evenChunks = (indices: number[], maxWords: number): number[][] => {
-  const count = Math.ceil(indices.length / maxWords);
-  const chunks: number[][] = [];
-  let cursor = 0;
-  for (let chunk = 0; chunk < count; chunk++) {
-    const size = Math.ceil((indices.length - cursor) / (count - chunk));
-    chunks.push(indices.slice(cursor, cursor + size));
-    cursor += size;
-  }
-  return chunks;
-};
-
 const spanOf = (spans: Span[], index: number) => spans.find((span) => index >= span.first && index <= span.last);
 
-const repairAccentBoundaries = (chunks: number[][], spans: Span[]): number[][] => {
-  const result = chunks.map((chunk) => [...chunk]);
-  for (let chunkIndex = 0; chunkIndex < result.length - 1; chunkIndex++) {
-    const current = result[chunkIndex]!;
-    const next = result[chunkIndex + 1]!;
-    const lastIndex = current[current.length - 1];
-    const firstNext = next[0];
-    if (lastIndex === undefined || firstNext === undefined) {
+const accentCount = (page: number[], spans: Span[]) => spans.filter((span) => page.some((index) => index >= span.first && index <= span.last)).length;
+
+const isStopWord = (text: string) => breakStopWords.has(normalize(text));
+
+const pageFits = (page: number[], tokens: RawToken[], spans: Span[], maxWords: number) =>
+  page.length <= maxWords && accentCount(page, spans) <= 1 && layoutLines(page.map((index) => tokens[index]!)) !== null;
+
+const pageCost = (page: number[], tokens: RawToken[], spans: Span[], maxWords: number, isHook: boolean, nextStart: number | null, endsPhraseHere: boolean) => {
+  const first = tokens[page[0]!]!;
+  const last = tokens[page[page.length - 1]!]!;
+  let cost = breakCost.perPage;
+  if (!pageFits(page, tokens, spans, maxWords)) {
+    cost += page.length === 1 ? breakCost.unfittable / 10 : breakCost.unfittable;
+  }
+  if (!endsPhraseHere && nextStart !== null) {
+    if (isStopWord(last.text) && !endsPhrase(last.text)) {
+      cost += breakCost.stopWordEnd;
+    } else if (weakEndWords.has(normalize(last.text)) && !endsPhrase(last.text)) {
+      cost += breakCost.weakWordEnd;
+    }
+    cost -= Math.max(0, nextStart - last.end) * breakCost.gapRewardPerSec;
+  }
+  if (page.length === 1) {
+    cost += isHook ? breakCost.hookSingleWordPage : breakCost.singleWordPage;
+  }
+  const shownFor = (nextStart ?? last.end + captionRules.holdAfterLastWordSec) - first.start;
+  if (shownFor < captionRules.minPageSec) {
+    cost += breakCost.shortPage;
+  }
+  return cost;
+};
+
+const breakPhrase = (
+  phrase: number[],
+  tokens: RawToken[],
+  spans: Span[],
+  maxWordsAt: (startSec: number) => number,
+  hookEndSec: number,
+  phraseEndNext: number | null,
+): number[][] => {
+  const widest = Math.max(captionRules.hookMaxWords, captionRules.bodyMaxWords);
+  const count = phrase.length;
+  const best: number[] = [0, ...Array<number>(count).fill(Number.POSITIVE_INFINITY)];
+  const from: number[] = Array<number>(count + 1).fill(0);
+  for (let end = 1; end <= count; end++) {
+    if (end < count && spanOf(spans, phrase[end - 1]!) && spanOf(spans, phrase[end - 1]!) === spanOf(spans, phrase[end]!)) {
       continue;
     }
-    const span = spanOf(spans, lastIndex);
-    if (span && span.last >= firstNext) {
-      const moveCount = span.last - lastIndex;
-      current.push(...next.splice(0, moveCount));
+    for (let start = Math.max(0, end - widest); start < end; start++) {
+      if (!Number.isFinite(best[start]!)) {
+        continue;
+      }
+      const page = phrase.slice(start, end);
+      const pageStart = tokens[page[0]!]!.start;
+      const maxWords = maxWordsAt(pageStart);
+      const isHook = pageStart < hookEndSec;
+      const nextStart = end < count ? tokens[phrase[end]!]!.start : phraseEndNext;
+      const total = best[start]! + pageCost(page, tokens, spans, maxWords, isHook, nextStart, end === count);
+      if (total < best[end]!) {
+        best[end] = total;
+        from[end] = start;
+      }
     }
   }
-  return result.filter((chunk) => chunk.length > 0);
-};
-
-const splitUntilFits = (chunk: number[], tokens: RawToken[]): number[][] => {
-  if (chunk.length <= 1 || layoutLines(chunk.map((index) => tokens[index]!))) {
-    return [chunk];
+  const pages: number[][] = [];
+  let cursor = count;
+  while (cursor > 0) {
+    const start = from[cursor]!;
+    pages.unshift(phrase.slice(start, cursor));
+    cursor = start;
   }
-  const half = Math.ceil(chunk.length / 2);
-  return [...splitUntilFits(chunk.slice(0, half), tokens), ...splitUntilFits(chunk.slice(half), tokens)];
+  return pages;
 };
 
-const mergeShortPages = (chunks: number[][], tokens: RawToken[], maxWordsAt: (startSec: number) => number): number[][] => {
+const mergeShortPages = (chunks: number[][], tokens: RawToken[], spans: Span[], maxWordsAt: (startSec: number) => number): number[][] => {
   const pages = chunks.map((chunk) => [...chunk]);
   const startOf = (page: number[]) => tokens[page[0]!]!.start;
-  const durationOf = (pageIndex: number) => {
+  const shownFor = (pageIndex: number) => {
     const page = pages[pageIndex]!;
     const next = pages[pageIndex + 1];
-    const end = next ? startOf(next) : tokens[page[page.length - 1]!]!.end;
+    const end = next ? startOf(next) : tokens[page[page.length - 1]!]!.end + captionRules.holdAfterLastWordSec;
     return end - startOf(page);
   };
-  const fits = (page: number[]) =>
-    page.length <= maxWordsAt(startOf(page)) + 1 && layoutLines(page.map((index) => tokens[index]!)) !== null;
+  const fits = (page: number[]) => pageFits(page, tokens, spans, maxWordsAt(startOf(page)));
   let changed = true;
   while (changed) {
     changed = false;
     for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
       const page = pages[pageIndex]!;
-      if (durationOf(pageIndex) >= captionRules.minPageSec) {
+      if (shownFor(pageIndex) >= captionRules.minPageSec) {
         continue;
       }
       const next = pages[pageIndex + 1];
@@ -172,22 +251,20 @@ const mergeShortPages = (chunks: number[][], tokens: RawToken[], maxWordsAt: (st
   return pages;
 };
 
-export const buildCaptionPages = (captions: CaptionWord[], accents: string[], hookEndSec: number): CaptionPage[] => {
+export const buildCaptionPages = (captions: CaptionWord[], accents: AccentSpec[], hookEndSec: number): CaptionPage[] => {
   const tokens = tokenize(captions);
   const spans = findAccentSpans(tokens, accents);
   const maxWordsAt = (startSec: number) => (startSec < hookEndSec ? captionRules.hookMaxWords : captionRules.bodyMaxWords);
+  const phrases = splitIntoPhrases(tokens);
 
-  const chunks = splitIntoPhrases(tokens, hookEndSec).flatMap((phrase) => {
-    const maxWords = maxWordsAt(tokens[phrase[0]!]!.start);
-    return repairAccentBoundaries(evenChunks(phrase, maxWords), spans).flatMap((chunk) => splitUntilFits(chunk, tokens));
+  const chunks = phrases.flatMap((phrase, phraseIndex) => {
+    const nextPhrase = phrases[phraseIndex + 1];
+    const nextStart = nextPhrase ? tokens[nextPhrase[0]!]!.start : null;
+    return breakPhrase(phrase, tokens, spans, maxWordsAt, hookEndSec, nextStart);
   });
 
-  return mergeShortPages(chunks, tokens, maxWordsAt).map((page) => {
-    const firstSpan = page.map((index) => spanOf(spans, index)).find((span) => span !== undefined);
-    const pageTokens: PageToken[] = page.map((index) => ({
-      ...tokens[index]!,
-      accent: firstSpan !== undefined && index >= firstSpan.first && index <= firstSpan.last,
-    }));
+  return mergeShortPages(chunks, tokens, spans, maxWordsAt).map((page) => {
+    const pageTokens: PageToken[] = page.map((index) => ({ ...tokens[index]!, accent: spanOf(spans, index) !== undefined }));
     const lines = layoutLines(pageTokens) ?? [pageTokens];
     return {
       tokens: pageTokens,
