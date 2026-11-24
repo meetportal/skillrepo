@@ -1,0 +1,22 @@
+{
+  "phrases": {
+    "mail infra": "Mail Infra",
+    "mailinfra": "Mail Infra",
+    "mail-infra": "Mail Infra",
+    "mail-in-from": "Mail Infra",
+    "mail in from": "Mail Infra",
+    "google workspace": "Google Workspace",
+    "gtm": "GTM",
+    "spf": "SPF",
+    "dkim": "DKIM",
+    "dmarc": "DMARC",
+    "unauthorised": "unauthorized",
+    "authorised": "authorized",
+    "optimised": "optimized"
+  },
+  "neverShow": [
+    "www.mail.co.uk",
+    "www.mailinfra.co",
+    "thank you for watching"
+  ]
+}

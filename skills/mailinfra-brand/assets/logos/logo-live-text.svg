@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 805 226" width="805" height="226">
+  <title>Mail Infra</title>
+  <g id="envelope">
+    <path fill="#E88838" d="M5 0H169a6 6 0 0 1 6 6V122H163V13H5Z"/>
+    <path fill="#2870BC" d="M0 7H11V114H169V127H6a6 6 0 0 1-6-6Z"/>
+    <polyline fill="none" stroke="#2870BC" stroke-width="7.5" stroke-linejoin="round" points="11.5,13 86.5,74 164,14"/>
+    <line stroke="#2870BC" stroke-width="7.5" x1="13" y1="114" x2="66" y2="69"/>
+    <line stroke="#E88838" stroke-width="7.5" x1="106.5" y1="69" x2="161.5" y2="113"/>
+  </g>
+  <text x="219" y="120" font-family="Poppins, sans-serif" font-weight="700" font-size="151"><tspan fill="#2870BC">ail</tspan><tspan fill="#383C44" x="441">Infra</tspan></text>
+  <text x="7" y="213" font-family="Poppins, sans-serif" font-weight="500" font-size="49" fill="#4C4C54">Cold Email Infrastructure</text>
+</svg>

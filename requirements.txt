@@ -1,0 +1,7 @@
+faster-whisper
+librosa
+numpy
+opencv-python
+pyyaml
+scipy
+soundfile

@@ -1,0 +1,122 @@
+{
+  "name": "Mail Infra",
+  "descriptor": "Cold Email Infrastructure",
+  "display_url": "mailinfra.co",
+  "url": "https://mailinfra.co",
+  "system": "reel",
+  "colors": {
+    "navyTop": "#141C38",
+    "navyBottom": "#081024",
+    "navyPanel": "#101C34",
+    "navyTile": "#18243C",
+    "border": "#2C3450",
+    "accent": "#F09C48",
+    "brandOrange": "#E88838",
+    "brandBlue": "#2870BC",
+    "brandBlueOnDark": "#4A8EDB",
+    "danger": "#F05468",
+    "success": "#30C898",
+    "successFill": "#143C40",
+    "warning": "#F4C424",
+    "text": "#F8FCFC",
+    "muted": "#94A0B8",
+    "mutedDim": "#7C88A0",
+    "cream": "#F4F0E8",
+    "creamGlowBlue": "#C8D4EC",
+    "creamGlowPeach": "#F4D8BC",
+    "ink": "#141828",
+    "logoInk": "#383C44",
+    "taglineGray": "#4C4C54",
+    "ctaGold": "#FFD700",
+    "ctaInk": "#1A1A1A"
+  },
+  "colorMeanings": {
+    "danger": "mistake, failure, burned, marked",
+    "success": "fixed, safe, done",
+    "accent": "emphasis, active, the one word that matters",
+    "brandBlue": "Mail Infra itself",
+    "warning": "not set, risky, pending",
+    "ctaGold": "the single CTA pill on the end card, nothing else"
+  },
+  "fonts": {
+    "sans": {
+      "family": "Poppins",
+      "files": {
+        "400": "assets/fonts/Poppins-Regular.ttf",
+        "500": "assets/fonts/Poppins-Medium.ttf",
+        "600": "assets/fonts/Poppins-SemiBold.ttf",
+        "700": "assets/fonts/Poppins-Bold.ttf",
+        "800": "assets/fonts/Poppins-ExtraBold.ttf",
+        "900": "assets/fonts/Poppins-Black.ttf"
+      },
+      "licence": "assets/fonts/OFL-Poppins.txt"
+    },
+    "accent": {
+      "family": "Lora",
+      "style": "italic",
+      "files": {
+        "600": "assets/fonts/Lora-SemiBoldItalic.ttf",
+        "700": "assets/fonts/Lora-BoldItalic.ttf"
+      },
+      "variable": "assets/fonts/Lora-Italic-Variable.ttf",
+      "licence": "assets/fonts/OFL-Lora.txt"
+    }
+  },
+  "type": {
+    "caption": {"family": "Poppins", "weight": 700, "size": 68, "color": "text", "shadow": "0 4px 16px rgba(0,0,0,0.6)"},
+    "captionAccent": {"family": "Lora", "style": "italic", "weight": 600, "scale": 1.08, "color": "accent"},
+    "slam": {"family": "Poppins", "weight": 800, "size": 76, "case": "upper"},
+    "hook": {"family": "Poppins", "weight": 800, "size": 120, "case": "upper"},
+    "kicker": {"family": "Poppins", "weight": 500, "size": 36, "tracking": "0.2em", "case": "upper", "color": "accent"},
+    "cardText": {"family": "Poppins", "weight": 600, "minSize": 44},
+    "numeral": {"family": "Poppins", "weight": 800, "minSize": 140},
+    "mono": {"family": "monospace", "minSize": 36}
+  },
+  "logos": {
+    "primary": "assets/logos/logo.svg",
+    "horizontal": "assets/logos/logo-horizontal.svg",
+    "horizontalOnDark": "assets/logos/logo-horizontal-on-dark.svg",
+    "icon": "assets/logos/logo-icon.svg",
+    "liveText": "assets/logos/logo-live-text.svg"
+  },
+  "layout": {
+    "width": 1080,
+    "height": 1920,
+    "safe": {"x0": 70, "x1": 950, "y0": 220, "y1": 1500},
+    "cardBox": {"x0": 70, "x1": 950, "y0": 1150, "y1": 1480},
+    "captionY": {"talk": 1180, "takeover": 1180, "card": 1060},
+    "rail": {"x": 70, "y": 236, "segmentW": 64, "segmentH": 10, "count": 3}
+  },
+  "cta": {
+    "url": "mailinfra.co",
+    "pillColor": "ctaGold",
+    "pillInk": "ctaInk",
+    "secondary": "Link in bio"
+  },
+  "approvedClaims": [],
+  "endCardCopy": {
+    "headlines": [
+      ["Stop burning domains.", "Start scaling *safely.*"],
+      ["Safe domains.", "Scalable *sending.*"],
+      ["Cold email,", "set up *right.*"]
+    ],
+    "kicker": "SAFE DOMAINS. SCALABLE SENDING.",
+    "cta": ["mailinfra.co", "Scale cold email safely at mailinfra.co"],
+    "proofLinesWithoutNumbers": [
+      "Authorized Google Workspace reseller",
+      "Warmed inboxes and domains, set up for you",
+      "SPF, DKIM and DMARC configured",
+      "Safe sending limits per inbox"
+    ]
+  },
+  "neverShip": [
+    "www.mailinfra.co or any www. form of the URL",
+    "any number, price, percentage, client count or volume figure not in approvedClaims",
+    "the website palette (#0000FF, #7C3AED) or Inter in reels",
+    "a persistent logo bug or a watermark",
+    "the Google Workspace logo without the authorized reseller wording beside it, or any recreated Google UI",
+    "scene counters such as 01/11, timecodes, or n/3 labels",
+    "card text under 44 px (36 px only for a mono DNS record line)",
+    "slogan copy that disparages named competitors"
+  ]
+}

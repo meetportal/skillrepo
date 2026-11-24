@@ -1,0 +1,21 @@
+{
+  "name": "tone-only",
+  "description": "Tone shaping and dynamics with no noise reduction and no gate. The reference for measuring what a denoiser does to speech (log-spectral distance) and to the floor.",
+  "params": {
+    "highpass_hz": 80,
+    "lowmid_hz": 250,
+    "lowmid_gain_db": -2,
+    "presence_hz": 3500,
+    "presence_gain_db": 2.5,
+    "deess_i": 0.5,
+    "comp_threshold_db": -22,
+    "comp_ratio": 3
+  },
+  "stages": [
+    "highpass=f={highpass_hz}:poles=2",
+    "equalizer=f={lowmid_hz}:t=q:w=1.0:g={lowmid_gain_db}",
+    "equalizer=f={presence_hz}:t=q:w=1.2:g={presence_gain_db}",
+    "deesser=i={deess_i}:m=0.5:f=0.5:s=o",
+    "acompressor=threshold={comp_threshold_db}dB:ratio={comp_ratio}:attack=5:release=90:makeup=1:knee=4"
+  ]
+}
