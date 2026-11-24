@@ -19,6 +19,8 @@ IMPACT_DIP_ATTACK_S = 0.04
 IMPACT_DIP_HOLD_S = 0.35
 IMPACT_DIP_RELEASE_S = 0.25
 LIFT_RAMP_S = 0.3
+DIP_RAMP_S = 0.05
+HOLD_BLOCK = 48
 PRE_LIMIT_MARGIN_DB = 0.5
 SPEECH_MOMENTARY_BELOW_I = 8.0
 METER_WARMUP_S = 3.0
@@ -78,7 +80,29 @@ def build_bed(args, duration, work):
     return out, sections
 
 
-def automation_expression(placements, lift):
+def held_key(voice, hold_s, work):
+    samples = decode_mono(voice)
+    blocks = len(samples) // HOLD_BLOCK
+    peaks = np.abs(samples[: blocks * HOLD_BLOCK]).reshape(blocks, HOLD_BLOCK).max(axis=1)
+    width = max(1, round(hold_s * SAMPLE_RATE / HOLD_BLOCK))
+    padded = np.concatenate([np.zeros(width - 1, dtype=peaks.dtype), peaks])
+    held = np.lib.stride_tricks.sliding_window_view(padded, width).max(axis=1)
+    raw = Path(work) / "duck_key.f32"
+    np.repeat(held, HOLD_BLOCK).astype(np.float32).tofile(raw)
+    out = Path(work) / "duck_key.wav"
+    ffmpeg(["-f", "f32le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-i", str(raw), *FLOAT_WAV, str(out)])
+    raw.unlink()
+    return out
+
+
+def parse_dip(text):
+    start, end, depth = (float(part) for part in text.split(":"))
+    if end <= start or depth <= 0:
+        raise SystemExit(f"--bed-dip {text}: needs start:end:dB with end > start and dB > 0")
+    return start, end, depth
+
+
+def automation_expression(placements, lift, dips, tail_fade, duration):
     terms = []
     for p in placements:
         depth = p.get("duck_bed_db") or 0.0
@@ -87,15 +111,21 @@ def automation_expression(placements, lift):
         a = p["anchor_time"] - IMPACT_DIP_LEAD_S
         b = p["anchor_time"] + IMPACT_DIP_HOLD_S + IMPACT_DIP_RELEASE_S
         terms.append(f"-{depth:.3f}*clip((t-{a:.4f})/{IMPACT_DIP_ATTACK_S},0,1)*clip(({b:.4f}-t)/{IMPACT_DIP_RELEASE_S},0,1)")
+    for start, end, depth in dips:
+        a = start - DIP_RAMP_S
+        b = end + DIP_RAMP_S
+        terms.append(f"-{depth:.3f}*clip((t-{a:.4f})/{DIP_RAMP_S},0,1)*clip(({b:.4f}-t)/{DIP_RAMP_S},0,1)")
     if lift:
         start, gain_db = lift
         terms.append(f"+{gain_db:.3f}*clip((t-{start:.4f})/{LIFT_RAMP_S},0,1)")
-    if not terms:
+    fade = f"*clip(({duration:.4f}-t)/{tail_fade:.4f},0,1)" if tail_fade > 0 else ""
+    if not terms and not fade:
         return None
-    return f"volume=volume='pow(10,({''.join(terms)})/20)':eval=frame"
+    gain = f"pow(10,({''.join(terms)})/20)" if terms else "1"
+    return f"volume=volume='{gain}{fade}':eval=frame"
 
 
-def duck_bed(args, voice, voice_gain_db, bed_raw, bed_gain_db, threshold_db, automation, duration, work, name):
+def duck_bed(args, key, voice_gain_db, bed_raw, bed_gain_db, threshold_db, automation, duration, work, name):
     chain_bed = f"[1:a]{STEREO},volume={bed_gain_db:.3f}dB[bed]"
     chain_key = f"[0:a]{DUAL_MONO},{STEREO},volume={voice_gain_db:.3f}dB,apad,atrim=end={duration:.6f}[key]"
     duck = (
@@ -105,7 +135,7 @@ def duck_bed(args, voice, voice_gain_db, bed_raw, bed_gain_db, threshold_db, aut
     tail = f",asetnsamples=n=480,{automation}" if automation else ""
     graph = ";".join([chain_bed, chain_key, f"{duck}{tail}[out]"])
     out = Path(work) / name
-    run_graph([voice, bed_raw], graph, "out", out, work)
+    run_graph([key, bed_raw], graph, "out", out, work)
     return out
 
 
@@ -180,7 +210,7 @@ def duck_envelope(voice_ref, bed_unducked, bed_ducked, target_i):
     }
 
 
-def build_sfx(placements, duration, work):
+def build_sfx(placements, duration, tail_fade, work):
     if not placements:
         return None
     parts, labels = [], []
@@ -194,7 +224,8 @@ def build_sfx(placements, duration, work):
         chain += f",volume={p['gain_db']:.3f}dB,adelay={round(p['start'] * 1000)}:all=1[x{index}]"
         parts.append(chain)
         labels.append(f"[x{index}]")
-    graph = ";".join([*parts, "".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest,apad,atrim=end={duration:.6f}[sfx]"])
+    fade = f",afade=t=out:st={duration - tail_fade:.6f}:d={tail_fade:.6f}" if tail_fade > 0 else ""
+    graph = ";".join([*parts, "".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest,apad,atrim=end={duration:.6f}{fade}[sfx]"])
     out = Path(work) / "sfx_bus.wav"
     run_graph([p["file"] for p in placements], graph, "sfx", out, work)
     return out
@@ -225,7 +256,7 @@ def master(args, mix_pre, duration, work):
     source = mix_pre
     if measured["input_tp"] > ceiling:
         source = Path(work) / "mix_pre_peak_limited.wav"
-        ffmpeg(["-i", str(mix_pre), "-af", f"alimiter=limit={10 ** (ceiling / 20):.6f}:level=false:attack=5:release=60:asc=1", *FLOAT_WAV, str(source)])
+        ffmpeg(["-i", str(mix_pre), "-af", f"alimiter=limit={10 ** (ceiling / 20):.6f}:level=false:attack=5:release=60:asc=1:latency=1", *FLOAT_WAV, str(source)])
         pre_limited = {"ceiling_dbtp": round(ceiling, 2), "input_tp_before": measured["input_tp"], "peak_reduction_db": round(measured["input_tp"] - ceiling, 2)}
         measured = measure_for_loudnorm(source)
     lra_param = max(args.target_lra, math.ceil(measured["input_lra"] * 10 + 1) / 10)
@@ -234,7 +265,7 @@ def master(args, mix_pre, duration, work):
         f"measured_I={measured['input_i']}:measured_TP={measured['input_tp']}:measured_LRA={measured['input_lra']}:"
         f"measured_thresh={measured['input_thresh']}:linear=true:print_format=json"
     )
-    chain = f"{loudnorm},aresample={SAMPLE_RATE},alimiter=limit={args.safety_limit}:level=false,{STEREO},apad,atrim=end={duration:.6f}"
+    chain = f"{loudnorm},aresample={SAMPLE_RATE},alimiter=limit={args.safety_limit}:level=false:latency=1,{STEREO},apad,atrim=end={duration:.6f}"
     result = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostdin", "-nostats", "-y", "-i", str(source), "-af", chain, "-c:a", "pcm_s24le", "-ar", str(SAMPLE_RATE), str(args.out)],
         capture_output=True, text=True,
@@ -292,6 +323,9 @@ def main():
     parser.add_argument("--duck-ratio", type=float, default=6.0)
     parser.add_argument("--duck-attack", type=float, default=15.0, help="ms")
     parser.add_argument("--duck-release", type=float, default=300.0, help="ms")
+    parser.add_argument("--duck-hold", type=float, default=0.0, help="ms the sidechain key holds its peak after the voice drops, so the bed stays down through short gaps between words (0: key is the voice itself)")
+    parser.add_argument("--bed-dip", action="append", default=[], help="start:end:dB extra bed cut (50 ms ramps outside the window), repeatable, e.g. 37.8:38.45:8 under a soft word")
+    parser.add_argument("--tail-fade", type=float, default=0.0, help="fade the bed and SFX to silence over the last N seconds (the voice is untouched)")
     parser.add_argument("--safety-limit", type=float, default=0.84, help="alimiter ceiling after loudnorm, linear (0.84 is -1.5 dBFS)")
     args = parser.parse_args()
 
@@ -314,8 +348,9 @@ def main():
     slope = 1.0 - 1.0 / args.duck_ratio
     threshold_db = args.duck_threshold_db if args.duck_threshold_db is not None else args.target_i - args.duck_db / slope
     calibration = []
-    for _ in range(1 if args.duck_threshold_db is not None else 3):
-        ducked = duck_bed(args, args.voice, voice_gain, bed_raw, bed_gain, threshold_db, None, duration, work, "bed_ducked.wav")
+    key = held_key(args.voice, args.duck_hold / 1000.0, work) if args.duck_hold > 0 else args.voice
+    for _ in range(1 if args.duck_threshold_db is not None else 4):
+        ducked = duck_bed(args, key, voice_gain, bed_raw, bed_gain, threshold_db, None, duration, work, "bed_ducked.wav")
         depth = duck_depth(bed_level_frames, ebur128(ducked)["frames"], voice_frames, args.target_i)
         calibration.append({"threshold_db": round(threshold_db, 2), **depth})
         measured = depth["speech_momentary_db"]
@@ -324,9 +359,10 @@ def main():
         threshold_db -= (args.duck_db - measured) / slope
 
     envelope = duck_envelope(voice_ref, bed_level, ducked, args.target_i)
-    automation = automation_expression(placements, parse_lift(args.bed_lift))
-    bed_final = duck_bed(args, args.voice, voice_gain, bed_raw, bed_gain, threshold_db, automation, duration, work, "bed_final.wav")
-    sfx_bus = build_sfx(placements, duration, work)
+    dips = [parse_dip(text) for text in args.bed_dip]
+    automation = automation_expression(placements, parse_lift(args.bed_lift), dips, args.tail_fade, duration)
+    bed_final = duck_bed(args, key, voice_gain, bed_raw, bed_gain, threshold_db, automation, duration, work, "bed_final.wav")
+    sfx_bus = build_sfx(placements, duration, args.tail_fade, work)
     Path(args.out_pre).parent.mkdir(parents=True, exist_ok=True)
     sum_stems([voice_ref, bed_final, sfx_bus], duration, args.out_pre, work)
 
@@ -345,7 +381,9 @@ def main():
         "duration_s": round(duration, 3),
         "voice": {"input_integrated_lufs": voice_measure["integrated"], "gain_db": round(voice_gain, 2), "lra_lu": voice_measure["lra"]},
         "music": {"file": str(Path(args.music).resolve()), "sections": sections, "gain_db": round(bed_gain, 2), "eq": args.bed_eq},
-        "ducking": {"target_db": args.duck_db, "threshold_db": round(threshold_db, 2), "ratio": args.duck_ratio, "attack_ms": args.duck_attack, "release_ms": args.duck_release, "calibration": calibration, "envelope": envelope},
+        "ducking": {"target_db": args.duck_db, "threshold_db": round(threshold_db, 2), "ratio": args.duck_ratio, "attack_ms": args.duck_attack, "release_ms": args.duck_release, "hold_ms": args.duck_hold, "calibration": calibration, "envelope": envelope},
+        "bed_dips": [{"start": a, "end": b, "db": d} for a, b, d in dips],
+        "tail_fade_s": args.tail_fade,
         "bed_in_final_mix": {
             "unducked_integrated_lufs": round(args.target_i - args.bed_under + gain, 1),
             "under_speech_momentary_lufs": round(float(np.median(speech_m)) + gain, 1) if speech_m else None,
@@ -365,7 +403,7 @@ def main():
     report["gates"] = gates
     warnings = []
     if mastering["pre_limiter"] and mastering["pre_limiter"]["peak_reduction_db"] > PRE_LIMIT_WARN_DB:
-        warnings.append(f"pre-loudnorm limiter took {mastering['pre_limiter']['peak_reduction_db']} dB off the peaks; lower the voice compressor threshold by 2 dB (or add a voice-stage limiter) and remix")
+        warnings.append(f"pre-loudnorm limiter took {mastering['pre_limiter']['peak_reduction_db']} dB off the peaks; process the voice with a voice-clean preset that ends in peak_limit (peak_plr_db 14) and remix")
     if mastering["lra_parameter"] > args.target_lra:
         warnings.append(f"mix LRA {mastering['pass1_ebur128']['input_lra']} LU is above {args.target_lra}; loudnorm ran linear with LRA={mastering['lra_parameter']}, compress the voice more")
     report["warnings"] = warnings
