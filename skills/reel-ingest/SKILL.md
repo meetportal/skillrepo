@@ -69,11 +69,11 @@ Stage 1a of the reel pipeline. Everything here only reads the raw clips; never w
 7. **Onset gate.**
    ```
    python $SKILLS/reel-ingest/scripts/check_onsets.py --transcript ingest/transcript.json --out ingest/onsets_energy.json
-   python $SKILLS/reel-ingest/scripts/check_onsets.py --transcript ingest/transcript.json --asr-every 1 --model medium.en --out ingest/onsets_asr.json
+   python $SKILLS/reel-ingest/scripts/check_onsets.py --transcript ingest/transcript.json --asr-every 1 --model medium.en --threads 2 --out ingest/onsets_asr.json
    ```
    - Energy test: every word that follows a quiet frame (within 10 dB of room tone in the 80 ms before it) is measured against the energy rise (the point where a 5 ms window stays 12 dB above that quiet frame for 20 ms). Gate: every one within one video frame.
    - ASR leak test: the audio from each onset to three words later is transcribed. If it starts with the previous word, the onset sits early, inside the previous word. Gate: no leaks.
-   - Both must pass before `reel-cut` runs. On the cut audio, the same script takes `--words words.out.json --audio voice_cut.wav`.
+   - Both must pass before `reel-cut` runs. On the cut audio, the same script takes `--words words.out.json --audio voice_cut.wav`. `--threads` (default 2) caps the faster-whisper CPU threads of the ASR test on a shared machine.
 
 ## Checks before moving on
 

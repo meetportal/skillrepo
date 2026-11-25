@@ -55,7 +55,7 @@ Run from the reel work folder with `SKILLS` set to this repo's `skills/` folder;
 7. No cut frame within 3 frames of a blink or soft window (`guard_frames`). `plan_cuts.py` searches offsets up to 6 frames to clear them and warns when it cannot.
 8. Held frames: when the frames at a cut are soft (focus hunt, sway blur) on a side, freeze the nearest sharp frame with `holds` (video only, the audio keeps running). Use 2 to 4 frames to fix a cut frame or the first frame of the reel; longer holds under speech become mandatory `cover` windows.
 9. Frame 0 is the thumbnail and loop frame: it must be a sharp frame with the eyes open. If the take opens soft, hold the first sharp frame over the first frames (at most about 4) and let the live video continue from that same frame.
-10. Video is rendered in a single `filter_complex`: per range `trim(start_frame, end_frame)` (or one frame plus `tpad` for a hold), `setpts`, then the grade, then `concat`. Audio is cut in sample indices from the same frame grid.
+10. Video is rendered in a single `filter_complex`: per range `trim(start_frame, end_frame)` (or one frame plus `tpad` for a hold), `setpts`, then the grade, then `concat`, then `setpts=N/(FPS*TB)`. Audio is cut in sample indices from the same frame grid.
 11. Drift gate: video and audio durations equal within one frame and equal to the EDL total. No speed change, no atempo, never `-shortest`.
 
 ## Steps (exact order and files)
@@ -79,7 +79,9 @@ Run from the reel work folder with `SKILLS` set to this repo's `skills/` folder;
    ```
    python $SKILLS/reel-cut/scripts/render_aroll.py --edl edl.json --grade config/grade.json --out-video aroll.mp4 --out-audio voice_cut.wav
    ```
-   Video: each clip decoded once and split; per range the grade from `reel-grade` (rotate, clip filters, tone curve, segment filters, look), working format pinned between filters, one explicit full-to-tv conversion, then the legal stage (`lutyuv` soft toe and shoulder on Y into 17-233, chroma clipped to 16-240; see `reel-grade`). Time-varying tone curves are driven per frame with `sendcmd` into `lutyuv` (command files next to the saved filter graph). Encode `libx264 -preset medium -crf 14 -g 25` (`--threads N` caps decoder, filter and encoder threads on a shared machine), BT.709 tags, `-color_range tv`, CFR. Audio: decoded per clip (mono fold with `pan`, 48 kHz), cut and crossfaded in numpy, written as PCM 24-bit. The drift gate runs at the end.
+   Video: each clip decoded once and split; per range the grade from `reel-grade` (rotate, clip filters, tone curve, segment filters, look), working format pinned between filters, one explicit full-to-tv conversion, then the legal stage (`lutyuv` soft toe and shoulder on Y into 17-233, chroma clipped to 16-240; see `reel-grade`). Time-varying tone curves are driven per frame with `sendcmd` into `lutyuv` (command files next to the saved filter graph). Encode `libx264 -preset medium -crf 14 -g 25` (`--threads N` caps decoder, filter and encoder threads on a shared machine), BT.709 tags, `-color_range tv`, CFR. Audio: decoded per clip (mono fold with `pan`, 48 kHz), cut and crossfaded in numpy, written as PCM 24-bit. After encoding the script counts the frames of `aroll.mp4` and stops unless they equal the EDL frame total, then the drift gate runs.
+
+   Concat restamp: `concat` can emit a repeated timestamp after a held frame (`tpad`) or a 1-frame J/L bridge piece, and `-fps_mode cfr` then drops a frame, so the picture slips one frame against the audio from that point on (a mock EDL with two 1-frame bridges and two holds came out 202 of 204 frames). The graph therefore ends in `concat=...,setpts=N/(FPS*TB)`, which numbers the frames 0, 1, 2 on the output grid. Do not remove it, and do not add a second `-r` filter before the encoder.
 
 3. **Retime words** (timing only).
    ```

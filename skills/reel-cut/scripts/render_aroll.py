@@ -117,8 +117,21 @@ def build_video_graph(edl, grade, command_dir):
             trim = f"trim=start_frame={v_in}:end_frame={v_out}"
         chain = video_chain(i, entry, grade, full_range[entry["clip"]], fps, command_dir)
         lines.append(f"[vs{i}]{trim},setpts=PTS-STARTPTS,{chain}[v{i}]")
-    lines.append("".join(f"[v{i}]" for i in range(len(ranges))) + f"concat=n={len(ranges)}:v=1:a=0[vout]")
+    lines.append("".join(f"[v{i}]" for i in range(len(ranges))) + f"concat=n={len(ranges)}:v=1:a=0,setpts=N/({fps:g}*TB)[vout]")
     return inputs, ";\n".join(lines)
+
+
+def edl_frames(edl):
+    fps = edl["fps"]
+    return sum(to_frame(entry["v_out"], fps) - to_frame(entry["v_in"], fps) for entry in edl["ranges"])
+
+
+def counted_frames(path):
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-count_packets", "-select_streams", "v:0", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(path)],
+        check=True, capture_output=True, text=True,
+    )
+    return int(result.stdout.strip().split(",")[0])
 
 
 def decode_mono(path):
@@ -224,6 +237,10 @@ def main():
             "-r", f"{fps:g}", "-fps_mode", "cfr", "-movflags", "+faststart", args.out_video,
         ]
         subprocess.run(command, check=True)
+        expected, written = edl_frames(edl), counted_frames(args.out_video)
+        if written != expected:
+            raise SystemExit(f"frame count: {args.out_video} has {written} frames, the EDL totals {expected}")
+        print(f"frames: {written} = EDL total")
     print(f"rendered in {time.time() - started:.1f}s: {args.out_video} {args.out_audio}")
     if not args.audio_only and not run_gate(args.edl, args.out_video, args.out_audio):
         raise SystemExit("drift gate failed")

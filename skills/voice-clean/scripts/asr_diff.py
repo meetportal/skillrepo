@@ -40,12 +40,13 @@ def main():
     parser.add_argument("--language", default="en")
     parser.add_argument("--prompt", help="initial prompt with names and jargon, used for both passes")
     parser.add_argument("--drop-limit", type=float, default=0.15, help="list matched words whose confidence falls by more than this in the candidate")
+    parser.add_argument("--threads", type=int, default=2, help="CPU threads for faster-whisper (default 2, for a shared machine)")
     parser.add_argument("--out", help="write the json report here")
     args = parser.parse_args()
 
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(args.model, device="cpu", compute_type=args.compute_type)
+    model = WhisperModel(args.model, device="cpu", compute_type=args.compute_type, cpu_threads=args.threads)
     reference = transcribe(model, args.reference, args.language, args.prompt)
     candidate = transcribe(model, args.candidate, args.language, args.prompt)
     matcher = difflib.SequenceMatcher(a=[w["word"] for w in reference], b=[w["word"] for w in candidate], autojunk=False)

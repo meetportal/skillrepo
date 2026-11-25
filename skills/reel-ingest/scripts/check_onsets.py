@@ -93,6 +93,7 @@ def main():
     parser.add_argument("--asr-every", type=int, default=0, help="ASR leak test on every Nth word (0 = off): audio from the onset to three words later must not start with the previous word, which happens when an onset sits early, inside the previous word")
     parser.add_argument("--model", default="large-v3")
     parser.add_argument("--prompt", default="")
+    parser.add_argument("--threads", type=int, default=2, help="CPU threads for faster-whisper in the ASR test (default 2, for a shared machine)")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     frame = 1 / args.fps
@@ -100,7 +101,7 @@ def main():
     if args.asr_every:
         from faster_whisper import WhisperModel
 
-        model = WhisperModel(args.model, device="cpu", compute_type="int8")
+        model = WhisperModel(args.model, device="cpu", compute_type="int8", cpu_threads=args.threads)
     report = {"frame_s": frame, "groups": {}}
     passed = True
     for name, path, words in load_words(args):

@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from soundlib import load_json
 
-ATTRIBUTION_FREE = ("cc0", "public domain", "pdm", "mixkit", "pixabay")
+ATTRIBUTION_FREE = ("cc0", "public domain", "pdm", "mixkit", "pixabay", "original")
 
 
 def sha256(path):
@@ -51,6 +51,10 @@ def needs_attribution(entry):
 def credit_line(entry):
     if entry.get("attribution_line"):
         return entry["attribution_line"]
+    if (entry.get("license") or "").lower() == "original":
+        params = entry.get("params") or {}
+        seed = f", seed {params['seed']}" if "seed" in params else ""
+        return f'"{entry.get("title") or Path(entry["file"]).stem}" generated with sfx_synth.py{seed}, original sound, no licence needed'
     title = entry.get("title") or Path(entry["file"]).stem
     creator = entry.get("creator") or entry.get("artist") or "unknown"
     licence = entry.get("license") or "licence unknown"

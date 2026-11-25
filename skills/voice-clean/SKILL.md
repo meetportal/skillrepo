@@ -52,10 +52,10 @@ python $SKILLS/voice-clean/scripts/process_voice.py --input voice_cut.wav --outp
 # 4. Verify splices and words
 python $SKILLS/voice-clean/scripts/check_splices.py --edl edl.json --audio voice_cut.wav --audio voice.wav --out voice_lab/splices.json
 python $SKILLS/voice-clean/scripts/asr_diff.py --reference voice_cut.wav --candidate voice.wav \
-  --model large-v3 --prompt "Brand, jargon" --out voice_lab/asr_diff.json
+  --model large-v3 --threads 2 --prompt "Brand, jargon" --out voice_lab/asr_diff.json
 ```
 
-`asr_diff.py` here only compares two audio files on the same timeline (raw cut against processed voice). Checking caption words against audio is `reel-captions/scripts/asr_diff.py`.
+`asr_diff.py` here only compares two audio files on the same timeline (raw cut against processed voice). `--threads` (default 2) caps the faster-whisper CPU threads on a shared machine. Checking caption words against audio is `reel-captions/scripts/asr_diff.py`.
 
 `clip_params.json` maps a clip's file stem to overrides, optionally with its own preset. A range's audio source is its `a_clip` when the EDL has one (J/L bridge ranges), else its `clip`:
 
@@ -65,7 +65,7 @@ python $SKILLS/voice-clean/scripts/asr_diff.py --reference voice_cut.wav --candi
 
 Global overrides go on the command line: `--set comp_threshold_db=-16 --set expander_release_ms=40`.
 
-`process_voice.py` refuses an input whose length is not the EDL's audio total, and writes the input and output sha256 and sample counts into the report, so the mix step can prove `voice.wav` came from the current `voice_cut.wav`.
+`process_voice.py` refuses an input whose length is not the EDL's audio total, and writes `input.sha256`, `input.path`, `output.sha256`, `output.path` and the sample counts into the report next to `gates`. `reel-sound/scripts/mix.py --voice voice.wav --voice-report voice_lab/voice.report.json --voice-cut voice_cut.wav` checks them before mixing and exits 2 when `voice.wav` is not the report's output, when `voice_cut.wav` changed after this step (a re-cut without a re-run of voice-clean), or when any gate is false. Re-run this step after every re-cut.
 
 ## Decision table by noise type
 
