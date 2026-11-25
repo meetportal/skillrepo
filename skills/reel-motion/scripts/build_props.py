@@ -206,11 +206,31 @@ def check_top_logo(top_logo, duration, fps, problems):
         problems.append(f"topLogo: the first range starts after {latest_start:.2f} s; the logo must be fully in by 1.0 s")
 
 
+LOOK_KEYS = {"vignette": (0.0, 1.0), "grain": (0.0, 1.0), "grainSizePx": (1.0, 4.0), "seed": (0, 100000)}
+
+
+def check_look(look, problems):
+    if not isinstance(look, dict):
+        problems.append("look must be an object")
+        return
+    unknown = set(look) - set(LOOK_KEYS)
+    if unknown:
+        problems.append(f"look: unknown keys {sorted(unknown)}")
+    for name, (low, high) in LOOK_KEYS.items():
+        value = look.get(name)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+            problems.append(f"look.{name} {value!r} must be a number in {low}..{high}")
+    if "seed" in look and isinstance(look["seed"], float) and not look["seed"].is_integer():
+        problems.append("look.seed must be an integer")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Merge cues, words, beatmap and camera plan into Remotion props for the Reel composition.")
     parser.add_argument("--cues", required=True)
     parser.add_argument("--words", required=True, help="Remotion Caption[] on the output timeline")
-    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents, captions?, topLogo?}; anchors allowed (beat-relative inside beats[].props)")
+    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents, captions?, topLogo?, look?}; anchors allowed (beat-relative inside beats[].props)")
     parser.add_argument("--camera", required=True, help="camera plan {keys:[{t,scale,tx,ty,ease}]}")
     parser.add_argument("--aroll", required=True, help="A-roll video file inside --public-dir")
     parser.add_argument("--public-dir", required=True, help="directory passed to remotion as --public-dir")
@@ -256,6 +276,9 @@ def main():
     top_logo = beatmap.get("topLogo")
     if top_logo is not None:
         check_top_logo(top_logo, duration, fps, problems)
+    look = beatmap.get("look")
+    if look is not None:
+        check_look(look, problems)
     if problems:
         sys.exit("props invalid:\n  " + "\n  ".join(problems))
 
@@ -284,6 +307,8 @@ def main():
         props["captionOptions"] = caption_options
     if top_logo is not None:
         props["topLogo"] = top_logo
+    if look is not None:
+        props["look"] = look
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(props, indent=1) + "\n")
     print(f"wrote {os.path.abspath(args.out)}: {len(words)} words, {len(beats)} beats, {len(camera)} camera keys, {duration:.2f} s")

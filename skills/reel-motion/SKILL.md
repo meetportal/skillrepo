@@ -17,11 +17,12 @@ remotion/                        Remotion 4.0.542 project (all @remotion/* pinne
   src/theme.ts                   colour, type, zone, surface, motion, camera and caption tokens
   src/lib/brand.ts               the brand file (alias target) and brandAsset()/brandLogo() for public assets
   src/fonts.ts                   local fonts via @remotion/fonts + load assertion (render fails if a face is missing)
-  src/Reel.tsx                   Camera -> BeatLayer -> TopLogo -> Captions (captions always last)
+  src/Reel.tsx                   Camera -> LookOverlay -> BeatLayer -> TopLogo -> Captions (captions always last)
   src/components/Camera.tsx      OffthreadVideo with scale/translate keys and kick offsets, origin at the face centre
   src/components/Captions.tsx    caption pages, word reveal and layoutCaptionPages() (the boxes the renderer draws)
   src/components/BeatLayer.tsx   one Sequence per beat, ordered by `layer`; parses props with the component's schema
   src/components/TopLogo.tsx     persistent top-center brand mark (props `topLogo`)
+  src/components/LookOverlay.tsx vignette and seeded film grain over the footage, under every graphic (props `look`)
   src/components/registry.ts     component name -> defineBeat(schema, Component)
   src/components/beats/*.tsx     one file per beat component (default export + `schema`)
   src/components/ui/             shared primitives: Card, Tile, Pill, Kicker, Icon, AccentText, SafeArea, motion hooks
@@ -125,6 +126,23 @@ The CLI symlinks the public dir into the bundle (no copy), so pointing `--public
 The logo must be fully in by 1.0 s (`build_props.py` fails otherwise): start the first range at 0 to 0.68 s. `enterFrames: 0` with a range from 0 shows it fully on frame 0 (the feed thumbnail). Add `LogoPop` to `hideDuring` so the top mark fades out as the logo card pops instead of showing two logos. Keep the hook headline, progress rail and any other top graphic at y 236 or lower and look at stills where the hook, the rail and each takeover are on screen.
 
 `LogoPop` (`card` `cream` or `navy`; the logo defaults to `color` on cream and `white` on navy) animates the icon first and the wordmark after it, split at the brand's `logoMark.iconSplit` (`markSplit: null` pops the whole mark at once). `EndCard` uses the `color` mark (default `logoWidthPx` 640); its `handoff` takes the pop's `card`, `widthPx` and `centerY`, and a navy pop card fades to cream while the white mark crossfades to the colour mark.
+
+## Look overlay
+
+`look` (beat map source or `props.json`, off unless set) draws a cinematic vignette and film grain above the camera and below every beat, the top logo and the captions. In framed layout it sits inside the window (see Framed layout), so the navy background and the window border stay clean.
+
+```json
+"look": {"vignette": 0.5, "grain": 0.35, "grainSizePx": 2, "seed": 0}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `vignette` | 0 | 0 to 1: radial darkening toward the edges, centred a little above the frame centre (the face). 0.5 darkens the bottom corners by about 10 % and leaves the face untouched |
+| `grain` | 0 | 0 to 1: monochrome fractal noise blended with `overlay`, so the mean brightness does not move. 0.3 to 0.4 reads as film grain on a phone; above 0.6 it reads as noise |
+| `grainSizePx` | 2 | grain cell size (the noise is drawn at 1/size resolution and scaled up) |
+| `seed` | 0 | the noise seed is `seed + frame`: every frame has new grain and the same frame always renders the same grain (no `Math.random`) |
+
+Both at 0 (or no `look`) render nothing. Keep it subtle: compare a still with and without at the face and at a bright wall corner; the face must not get darker.
 
 ## Camera keys
 

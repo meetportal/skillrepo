@@ -110,6 +110,13 @@ export const topLogoSchema = z.object({
   scrim: z.number().min(0).max(1).default(0.22),
 });
 
+export const lookSchema = z.object({
+  vignette: z.number().min(0).max(1).default(0),
+  grain: z.number().min(0).max(1).default(0),
+  grainSizePx: z.number().min(1).max(4).default(2),
+  seed: z.number().int().min(0).max(100000).default(0),
+});
+
 export const reelPropsSchema = z.object({
   aroll: z.string(),
   durationSec: z.number().positive(),
@@ -123,6 +130,7 @@ export const reelPropsSchema = z.object({
   beats: z.array(beatSchema),
   accents: z.array(accentSpecSchema),
   topLogo: topLogoSchema.optional(),
+  look: lookSchema.optional(),
   guides: z.boolean().optional(),
 });
 
@@ -141,6 +149,7 @@ export type Beat = z.infer<typeof beatSchema>;
 export type AccentSpec = z.infer<typeof accentSpecSchema>;
 export type TopLogoRange = z.infer<typeof topLogoRangeSchema>;
 export type TopLogoProps = z.infer<typeof topLogoSchema>;
+export type LookProps = z.infer<typeof lookSchema>;
 export type ReelProps = z.infer<typeof reelPropsSchema>;
 
 export type BeatContext = {

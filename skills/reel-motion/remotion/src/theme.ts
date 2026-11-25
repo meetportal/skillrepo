@@ -162,3 +162,15 @@ export const captionRules = {
   maxLineWidthPx: brand.layout.safe.x1 - brand.layout.safe.x0,
   centerX: (brand.layout.safe.x0 + brand.layout.safe.x1) / 2,
 };
+
+export const look = {
+  vignetteColor: "4,6,14",
+  vignetteEllipse: "120% 95%",
+  vignetteCenterY: "42%",
+  vignetteInner: 40,
+  vignetteMid: 74,
+  vignetteMax: 0.8,
+  grainFrequency: 0.85,
+  grainContrast: 2.2,
+  grainMaxOpacity: 0.32,
+};
