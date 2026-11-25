@@ -1,0 +1,9 @@
+{
+ "rotate": ["transpose=2", "setsar=1"],
+ "look": ["colortemperature=temperature=6000:mix=0.3", "eq=contrast=1.06:saturation=1.10", "unsharp=5:5:0.4:5:5:0"],
+ "legal_clamp": true,
+ "clips": {"CLIP_B": {"tone": {"high": -8}, "filters": ["colorbalance=rm=-0.03"]}},
+ "segments": [
+  {"clip": "CLIP_A", "from": 0, "to": 1000000, "mid_keys": [[2.3, 1.08], [2.7, 1.0], [4.1, 0.96]]}
+ ]
+}

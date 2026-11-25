@@ -1,0 +1,15 @@
+{
+ "beats": [
+  {"id": "hook", "component": "HookHeadline", "mode": "talk", "from": 0.0, "to": {"@word": "lands", "offset": -0.08},
+   "props": {"lines": ["Your domain is *burning*", "and nobody told you"], "appearAt": 0.0, "exit": "fade"}},
+  {"id": "spam3d", "component": "VideoInsert", "mode": "takeover", "from": {"@word": "lands", "offset": -0.08}, "to": {"@word": "spam", "edge": "end", "offset": 0.12},
+   "props": {"src": "3d/spam3d.mov", "fit": "full",
+             "three": {"composition": "EnvelopeToSpam3D", "props": {"landAt": {"@word": "spam", "offset": -0.04}, "label": "Spam", "fromSide": "left", "tone": "danger"}}}},
+  {"id": "auth", "component": "AuthTiles", "mode": "card", "from": {"@word": "SPF", "offset": -0.06}, "to": {"@word": "DMARC", "edge": "end", "offset": 0.5},
+   "props": {"labels": ["SPF", "DKIM", "DMARC"], "enter": "slam", "slamTimes": [{"@word": "SPF", "offset": -0.04}, {"@word": "DKIM", "offset": -0.04}, {"@word": "DMARC", "offset": -0.04}]}},
+  {"id": "end", "component": "EndCard", "mode": "takeover", "from": {"@end": true}, "to": {"@end": true, "offset": 2.5},
+   "props": {"headline": ["Fix it *today*"], "url": "yourbrand.com", "urlAt": 0.72}}
+ ],
+ "accents": ["spam", "fix"],
+ "topLogo": {"enabled": true, "logo": "white", "ranges": [{"from": 0.24, "to": {"@end": true, "offset": 2.5}}], "hideDuring": ["EndCard"]}
+}

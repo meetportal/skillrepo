@@ -1,0 +1,9 @@
+{"kind": "sfx", "root": ".",
+ "files": [
+  {"file": "whoosh/whoosh-move-01.wav", "category": "whoosh", "title": "whoosh-move 1", "creator": "generated", "license": "original", "attribution_required": false, "sha256": "<sha256 of the file>"},
+  {"file": "transition/whoosh-transition-01.wav", "category": "transition", "title": "whoosh-transition 1", "creator": "generated", "license": "original", "attribution_required": false, "sha256": "<sha256 of the file>"},
+  {"file": "impact/impact-01.wav", "category": "impact", "title": "impact 1", "creator": "generated", "license": "original", "attribution_required": false, "sha256": "<sha256 of the file>"},
+  {"file": "pop/pop-01.wav", "category": "pop", "title": "pop 1", "creator": "generated", "license": "original", "attribution_required": false, "sha256": "<sha256 of the file>"},
+  {"file": "pop/pop-02.wav", "category": "pop", "title": "pop 2", "creator": "generated", "license": "original", "attribution_required": false, "sha256": "<sha256 of the file>"},
+  {"file": "whoosh/downloaded-swipe.ogg", "category": "whoosh", "title": "Swipe", "creator": "Example Creator", "license": "CC0 1.0", "license_url": "https://creativecommons.org/publicdomain/zero/1.0/", "source_url": "https://example.com/sound/swipe", "attribution": "", "sha256": "<sha256 of the file>"}
+ ]}

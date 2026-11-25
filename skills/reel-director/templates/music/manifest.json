@@ -1,0 +1,4 @@
+{"kind": "music",
+ "tracks": [
+  {"file": "bed.mp3", "title": "Example Bed", "artist": "Example Artist", "license": "CC0 1.0", "license_url": "https://creativecommons.org/publicdomain/zero/1.0/", "source_url": "https://example.com/track/example-bed", "attribution_required": false, "attribution_line": "", "sha256": "<sha256 of the file>"}
+ ]}

@@ -1,0 +1,5 @@
+{"corrections": [
+  {"match": "your brand dot com", "text": "yourbrand.com"},
+  {"match": "d mark", "text": "DMARC"},
+  {"index": 0, "text": "Your"}
+]}

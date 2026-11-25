@@ -1,0 +1,11 @@
+{
+ "clips": {
+  "CLIP_A": {"states": [1.04, 1.12], "startState": 0, "ty": 0},
+  "CLIP_B": {"states": [1.16, 1.08], "startState": 0, "ty": 0}
+ },
+ "shots": {"0": {"ty": 20}},
+ "moves": [
+  {"t": {"@word": "Here"}, "scale": 1.10, "ease": "glide", "frames": 18},
+  {"t": {"@word": "fix"}, "ease": "kick", "px": 4.5, "frames": 7, "rollDeg": 0.2, "angleDeg": 60}
+ ]
+}

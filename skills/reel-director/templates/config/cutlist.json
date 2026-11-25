@@ -1,0 +1,8 @@
+{
+ "fps": 25,
+ "order": ["CLIP_A", "CLIP_B"],
+ "clips": {"CLIP_A": "/path/to/raw/CLIP_A.MP4", "CLIP_B": "/path/to/raw/CLIP_B.MP4"},
+ "trim": {"CLIP_A": [0.8, 14.0]},
+ "exclude": {"CLIP_B": [[3.1, 3.6]]},
+ "rules": {"tighten_min": 0.25, "sentence_tail": 0.10, "list_marker_tail": 0.20}
+}

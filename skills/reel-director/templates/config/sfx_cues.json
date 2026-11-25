@@ -1,0 +1,10 @@
+{"fps": 25,
+ "beats": {"hook": 0.0, "spam3d": 1.1, "auth": 3.6, "end": 12.0},
+ "density": {"min_events": 3, "max_events": 30},
+ "cues": [
+  {"id": "c01", "beat": "hook", "offset": 0.0, "visual": "hook headline cut in", "category": "pop", "file": "pop/pop-01.wav", "allow_on_word": true},
+  {"id": "c02", "event": "spam3d.land", "visual": "3D envelope lands in the spam folder", "category": "whoosh", "file": "whoosh/whoosh-move-01.wav", "layer_of": "c03"},
+  {"id": "c03", "event": "spam3d.land", "visual": "3D envelope lands in the spam folder", "category": "impact", "file": "impact/impact-01.wav"},
+  {"id": "c04", "beat": "auth", "word": "SPF", "word_offset": -0.04, "visual": "SPF tile slam", "category": "pop", "files": ["pop/pop-01.wav", "pop/pop-02.wav"]},
+  {"id": "c05", "beat": "end", "offset": 0.0, "visual": "end card wipe", "category": "whoosh", "file": "transition/whoosh-transition-01.wav"}
+ ]}
