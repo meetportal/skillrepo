@@ -1,4 +1,4 @@
-import { captionRules, layout as layoutTokens, zones } from "../theme";
+import { captionRules, kinetic, layout as layoutTokens, zones } from "../theme";
 import { layoutSchema, type CaptionOptions, type LayoutProps } from "../types";
 
 export type Box = { x0: number; x1: number; y0: number; y1: number };
@@ -40,7 +40,7 @@ export const captionGapBelowWindowPx = 14;
 
 const bottomLimit = layoutTokens.height - layoutTokens.bottomReservedPx;
 
-export const captionStageOf = (settings: LayoutProps, options: CaptionOptions): CaptionStage => {
+export const captionStageOf = (settings: LayoutProps, options: Pick<CaptionOptions, "centerY" | "style">): CaptionStage => {
   const override = options.centerY ?? {};
   if (isFramed(settings)) {
     const centerX = settings.window.centerX;
@@ -50,6 +50,15 @@ export const captionStageOf = (settings: LayoutProps, options: CaptionOptions): 
       maxWidth: 2 * half,
       y: { talk: override.talk ?? settings.captionY.talk, card: override.card ?? settings.captionY.card },
       band: { y0: settings.window.y1 + captionGapBelowWindowPx, y1: bottomLimit },
+    };
+  }
+  if (options.style === "kinetic") {
+    const centerX = kinetic.centerX;
+    return {
+      centerX,
+      maxWidth: 2 * Math.min(centerX - zones.safe.x0, zones.safe.x1 - centerX),
+      y: { talk: override.talk ?? kinetic.centerY.talk, card: override.card ?? kinetic.centerY.card },
+      band: { y0: zones.topLogo.y1, y1: bottomLimit },
     };
   }
   return {

@@ -191,3 +191,29 @@ export const framed = {
   defaultFaceY: 0.31,
   windowShadow: "0 40px 90px rgba(0,0,0,0.55), 0 12px 30px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.25)",
 };
+
+export const captionStyleDefaults = {
+  standard: { hookMaxWords: 3, bodyMinWords: 2, bodyMaxWords: 4, maxLines: 2, maxCharsPerLine: 22 },
+  kinetic: { hookMaxWords: 3, bodyMinWords: 1, bodyMaxWords: 3, maxLines: 2, maxCharsPerLine: 14 },
+};
+
+export const kinetic = {
+  fontWeight: 800,
+  lineHeight: 1.1,
+  wordGapEm: 0.32,
+  accentScale: 1.06,
+  accentWeight: 700,
+  centerX: 540,
+  centerY: { talk: 1240, card: 1010 },
+  strokeEm: 0.075,
+  strokeColor: "rgba(8,16,36,0.8)",
+  textShadow: "0 3px 6px rgba(0,0,0,0.7), 0 0 3px rgba(0,0,0,0.85), 0 8px 24px rgba(0,0,0,0.45)",
+  pillPadXEm: 0.16,
+  pillTopEm: 0.13,
+  pillBottomEm: 1.17,
+  pillRadiusEm: 0.2,
+  pillShadow: "0 6px 18px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.25)",
+  pillSlideFrames: 3,
+  colorFrames: 2,
+  framedMaxLines: 1,
+};

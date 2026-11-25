@@ -26,7 +26,13 @@ CAPTION_OPTIONS = {
     "bodyMaxWords": (int, 1, 6),
     "mergeAcrossPauseSec": (float, 0.0, 1.0),
     "localScrim": (float, 0.0, 0.4),
+    "maxLines": (int, 1, 2),
+    "maxCharsPerLine": (int, 8, 30),
 }
+CAPTION_STYLES = ("standard", "kinetic")
+KINETIC_OPTIONS = {"fontPx": (72, 130), "popFrames": (3, 4), "popFromScale": (0.8, 0.95)}
+KINETIC_HIGHLIGHTS = ("pill", "text")
+STYLE_WORD_DEFAULTS = {"standard": (2, 4), "kinetic": (1, 3)}
 
 CAPTION_CENTER_Y = (220, 1500)
 LAYOUT_KEYS = {"mode", "window", "background", "captionY", "cardBeats", "takeoverClip"}
@@ -112,7 +118,7 @@ def check_caption_options(options, problems):
     if not isinstance(options, dict):
         problems.append("captions options must be an object")
         return {}
-    unknown = set(options) - set(CAPTION_OPTIONS) - {"accentStyle", "centerY"}
+    unknown = set(options) - set(CAPTION_OPTIONS) - {"accentStyle", "centerY", "style", "kinetic"}
     if unknown:
         problems.append(f"captions options: unknown keys {sorted(unknown)}")
     cleaned = {}
@@ -138,7 +144,26 @@ def check_caption_options(options, problems):
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not CAPTION_CENTER_Y[0] <= value <= CAPTION_CENTER_Y[1]:
                     problems.append(f"captions.centerY.{name} {value!r} must be a number in {CAPTION_CENTER_Y[0]}..{CAPTION_CENTER_Y[1]}")
             cleaned["centerY"] = center
-    body_min, body_max = cleaned.get("bodyMinWords", 2), cleaned.get("bodyMaxWords", 4)
+    style = options.get("style", "standard")
+    if style not in CAPTION_STYLES:
+        problems.append(f"captions.style {style!r} not in {CAPTION_STYLES}")
+        style = "standard"
+    elif "style" in options:
+        cleaned["style"] = style
+    if "kinetic" in options:
+        kinetic = options["kinetic"]
+        if not isinstance(kinetic, dict) or set(kinetic) - set(KINETIC_OPTIONS) - {"highlight"}:
+            problems.append(f"captions.kinetic must be an object with {sorted(set(KINETIC_OPTIONS) | {'highlight'})}")
+        else:
+            for name, (low, high) in KINETIC_OPTIONS.items():
+                value = kinetic.get(name)
+                if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high):
+                    problems.append(f"captions.kinetic.{name} {value!r} must be in {low}..{high}")
+            if kinetic.get("highlight", "pill") not in KINETIC_HIGHLIGHTS:
+                problems.append(f"captions.kinetic.highlight {kinetic.get('highlight')!r} not in {KINETIC_HIGHLIGHTS}")
+            cleaned["kinetic"] = kinetic
+    default_min, default_max = STYLE_WORD_DEFAULTS[style]
+    body_min, body_max = cleaned.get("bodyMinWords", default_min), cleaned.get("bodyMaxWords", default_max)
     if body_min > body_max:
         problems.append(f"captions.bodyMinWords {body_min} is above bodyMaxWords {body_max}")
     return cleaned
@@ -288,7 +313,7 @@ def main():
     parser.add_argument("--public-dir", required=True, help="directory passed to remotion as --public-dir")
     parser.add_argument("--out", required=True)
     parser.add_argument("--max-scale", type=float, default=None, help="camera scale ceiling (default: the camera plan's maxScale, else 1.20; at most 1.30)")
-    parser.add_argument("--captions-config", help="JSON caption options {hookMaxWords, bodyMinWords, bodyMaxWords, mergeAcrossPauseSec, accentStyle, localScrim}; overrides the beat map's captions block")
+    parser.add_argument("--captions-config", help="JSON caption options {style, hookMaxWords, bodyMinWords, bodyMaxWords, maxLines, maxCharsPerLine, mergeAcrossPauseSec, accentStyle, localScrim, centerY, kinetic}; overrides the beat map's captions block")
     parser.add_argument("--extra-sec", type=float, default=0.0, help="seconds appended after the A-roll (for example an end card)")
     args = parser.parse_args()
 

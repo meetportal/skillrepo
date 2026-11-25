@@ -1,10 +1,11 @@
-import { measureText } from "@remotion/layout-utils";
 import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill, continueRender, delayRender, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontsReady } from "../fonts";
-import { buildCaptionPages, modeFrames, splitPunctuation, timePages, type CaptionPage, type PageRules, type PageToken, type TimedPage } from "../lib/captionPages";
-import { captionStageOf, fitInBand, resolveLayout, type CaptionStage } from "../lib/stage";
-import { captionAccentStyles, captionRules, captionScrim, captionUnderline, motion, type } from "../theme";
+import { tokenParts, measure, type Font } from "../lib/captionText";
+import { buildCaptionPages, modeFrames, timePages, type CaptionPage, type PageRules, type PageToken, type TimedPage } from "../lib/captionPages";
+import { captionStageOf, fitInBand, isFramed, resolveLayout, type CaptionStage } from "../lib/stage";
+import { KineticCaption, kineticPillPadPx, layoutKineticPage, type KineticLayout } from "./KineticCaption";
+import { captionAccentStyles, captionRules, captionScrim, captionStyleDefaults, captionUnderline, kinetic, motion, type } from "../theme";
 import { captionOptionsSchema, type AccentSpec, type AccentStyle, type CaptionMode, type CaptionModeName, type CaptionOptions, type CaptionWord, type LayoutProps } from "../types";
 
 const wordGapEm = 0.26;
@@ -23,8 +24,6 @@ export const modeAtFrame = (modes: CaptionMode[], frame: number, fps: number): C
 const pageUsesCardStage = (modes: CaptionMode[], startSec: number, endSec: number) =>
   modes.some((mode) => mode.mode === "card" && mode.from < endSec && mode.to > startSec);
 
-type Font = { fontFamily: string; fontWeight: number; fontStyle: "normal" | "italic"; fontSize: number };
-
 const baseFont = (scale: number): Font => ({
   fontFamily: type.caption.fontFamily,
   fontWeight: type.caption.fontWeight,
@@ -42,28 +41,6 @@ const accentFont = (style: AccentStyle, scale: number): Font => {
   };
 };
 
-const tokenParts = (token: PageToken) => {
-  if (!token.accent) {
-    return [{ text: token.text, accent: false }];
-  }
-  const { lead, core, trail } = splitPunctuation(token.text);
-  return [
-    { text: lead, accent: false },
-    { text: core, accent: true },
-    { text: trail, accent: false },
-  ].filter((part) => part.text.length > 0);
-};
-
-const measure = (text: string, font: Font) =>
-  measureText({
-    text,
-    fontFamily: font.fontFamily,
-    fontSize: font.fontSize,
-    fontWeight: font.fontWeight,
-    validateFontIsLoaded: true,
-    additionalStyles: { fontStyle: font.fontStyle },
-  }).width;
-
 const lineWidth = (line: PageToken[], style: AccentStyle) =>
   line.reduce(
     (sum, token, index) =>
@@ -79,14 +56,46 @@ const pageScale = (page: CaptionPage, style: AccentStyle, stage: CaptionStage) =
   return Math.min(1, stage.maxWidth / widest, (stage.band.y1 - stage.band.y0) / tallest);
 };
 
-export const resolveCaptionOptions = (options: unknown): CaptionOptions => captionOptionsSchema.parse(options ?? {});
+export type ResolvedCaptionOptions = CaptionOptions & Omit<PageRules, "mergeAcrossPauseSec">;
 
-const pageRulesOf = (options: CaptionOptions): PageRules => ({
+export const resolveCaptionOptions = (options: unknown, layoutSettings?: LayoutProps): ResolvedCaptionOptions => {
+  const parsed = captionOptionsSchema.parse(options ?? {});
+  const defaults = captionStyleDefaults[parsed.style];
+  const framedKinetic = parsed.style === "kinetic" && layoutSettings !== undefined && isFramed(layoutSettings);
+  const resolved = {
+    ...parsed,
+    hookMaxWords: parsed.hookMaxWords ?? defaults.hookMaxWords,
+    bodyMinWords: parsed.bodyMinWords ?? defaults.bodyMinWords,
+    bodyMaxWords: parsed.bodyMaxWords ?? defaults.bodyMaxWords,
+    maxLines: parsed.maxLines ?? (framedKinetic ? kinetic.framedMaxLines : defaults.maxLines),
+    maxCharsPerLine: parsed.maxCharsPerLine ?? defaults.maxCharsPerLine,
+  };
+  if (resolved.bodyMinWords > resolved.bodyMaxWords) {
+    throw new Error(`captionOptions: bodyMinWords ${resolved.bodyMinWords} exceeds bodyMaxWords ${resolved.bodyMaxWords}`);
+  }
+  return resolved;
+};
+
+const pageRulesOf = (options: ResolvedCaptionOptions): PageRules => ({
   hookMaxWords: options.hookMaxWords,
   bodyMinWords: options.bodyMinWords,
   bodyMaxWords: options.bodyMaxWords,
   mergeAcrossPauseSec: options.mergeAcrossPauseSec,
+  maxLines: options.maxLines,
+  maxCharsPerLine: options.maxCharsPerLine,
 });
+
+type PageGeometry = { scale: number; width: number; height: number; kinetic: KineticLayout | null };
+
+const pageGeometry = (page: CaptionPage, settings: ResolvedCaptionOptions, stage: CaptionStage): PageGeometry => {
+  if (settings.style === "kinetic") {
+    const layout = layoutKineticPage(page, settings.kinetic, stage);
+    const padX = settings.kinetic.highlight === "pill" ? kineticPillPadPx(layout.fontPx).x : 0;
+    return { scale: layout.scale, width: layout.width + padX * 2, height: layout.height, kinetic: layout };
+  }
+  const scale = pageScale(page, settings.accentStyle, stage);
+  return { scale, ...pageSize(page, scale, settings.accentStyle), kinetic: null };
+};
 
 export const cutFramesOf = (cuts: number[], fps: number) => cuts.filter((cut) => cut > 0).map((cut) => Math.round(cut * fps));
 
@@ -132,12 +141,12 @@ export const layoutCaptionPages = ({
   options?: unknown;
   layout?: unknown;
 }): CaptionPageLayout[] => {
-  const settings = resolveCaptionOptions(options);
-  const stage = captionStageOf(resolveLayout(layout), settings);
+  const layoutSettings = resolveLayout(layout);
+  const settings = resolveCaptionOptions(options, layoutSettings);
+  const stage = captionStageOf(layoutSettings, settings);
   const pages = timePages(buildCaptionPages(captions, accents, hookEndSec, pageRulesOf(settings)), modes, fps, totalFrames, cutFramesOf(cuts, fps));
   return pages.map((page) => {
-    const scale = pageScale(page, settings.accentStyle, stage);
-    const { width, height } = pageSize(page, scale, settings.accentStyle);
+    const { scale, width, height } = pageGeometry(page, settings, stage);
     const centerY = pageCenterY(modes, page, fps, stage, height);
     const half = width / 2;
     const visibleFrames: number[] = [];
@@ -242,8 +251,9 @@ export const Captions = ({
     }
   }, [fontsLoaded, layoutHandle]);
 
-  const settings = useMemo(() => resolveCaptionOptions(options), [options]);
-  const stage = useMemo(() => captionStageOf(layoutSettings ?? resolveLayout(undefined), settings), [layoutSettings, settings]);
+  const resolvedLayout = useMemo(() => layoutSettings ?? resolveLayout(undefined), [layoutSettings]);
+  const settings = useMemo(() => resolveCaptionOptions(options, resolvedLayout), [options, resolvedLayout]);
+  const stage = useMemo(() => captionStageOf(resolvedLayout, settings), [resolvedLayout, settings]);
   const pages = useMemo(
     () => timePages(buildCaptionPages(captions, accents, hookEndSec, pageRulesOf(settings)), modes, fps, durationInFrames, cutFramesOf(cuts, fps)),
     [captions, accents, modes, hookEndSec, fps, durationInFrames, cuts, settings],
@@ -251,10 +261,7 @@ export const Captions = ({
   const sizes = useMemo(
     () =>
       fontsLoaded
-        ? pages.map((page) => {
-            const scale = pageScale(page, settings.accentStyle, stage);
-            return { scale, ...pageSize(page, scale, settings.accentStyle) };
-          })
+        ? pages.map((page) => pageGeometry(page, settings, stage))
         : null,
     [pages, fontsLoaded, settings, stage],
   );
@@ -272,23 +279,34 @@ export const Captions = ({
   const centerY = pageCenterY(modes, page, fps, stage, size?.height ?? 0);
   const scrim = Math.min(settings.localScrim, captionScrim.max);
 
+  const scrimShape =
+    scrim > 0 && size ? (
+      <div
+        style={{
+          position: "absolute",
+          left: stage.centerX - size.width / 2 - captionScrim.padXPx,
+          top: centerY - size.height / 2 - captionScrim.padYPx,
+          width: size.width + captionScrim.padXPx * 2,
+          height: size.height + captionScrim.padYPx * 2,
+          borderRadius: (size.height + captionScrim.padYPx * 2) / 2,
+          backgroundColor: `rgba(${captionScrim.color},1)`,
+          opacity: scrim,
+          filter: `blur(${captionScrim.blurPx}px)`,
+        }}
+      />
+    ) : null;
+
+  if (size?.kinetic) {
+    return (
+      <AbsoluteFill style={{ pointerEvents: "none" }}>
+        {scrimShape}
+        <KineticCaption page={page} layout={size.kinetic} options={settings.kinetic} stage={stage} centerY={centerY} frame={frame} fps={fps} />
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
-      {scrim > 0 && size ? (
-        <div
-          style={{
-            position: "absolute",
-            left: stage.centerX - size.width / 2 - captionScrim.padXPx,
-            top: centerY - size.height / 2 - captionScrim.padYPx,
-            width: size.width + captionScrim.padXPx * 2,
-            height: size.height + captionScrim.padYPx * 2,
-            borderRadius: (size.height + captionScrim.padYPx * 2) / 2,
-            backgroundColor: `rgba(${captionScrim.color},1)`,
-            opacity: scrim,
-            filter: `blur(${captionScrim.blurPx}px)`,
-          }}
-        />
-      ) : null}
+      {scrimShape}
       <div
         style={{
           position: "absolute",

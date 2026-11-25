@@ -55,6 +55,20 @@ const pauseMerged = buildCaptionPages(listFixture, [], 0, { ...defaultPageRules,
 assert.ok(pauseSplit.some((page) => page.tokens.length === 1), "a 0.34 s pause splits a one-word list marker page by default");
 assert.ok(pauseMerged.every((page) => page.tokens.length >= 2), "mergeAcrossPauseSec 0.5 keeps the list marker with its words");
 
+const kineticRules = { ...defaultPageRules, bodyMinWords: 1, bodyMaxWords: 3, maxLines: 1, maxCharsPerLine: 14 };
+const kineticPages = buildCaptionPages(fixture, ["inbox", "replies stop"], hookEndSec, kineticRules);
+for (const [index, page] of kineticPages.entries()) {
+  assert.ok(page.tokens.length <= 3, `kinetic page ${index} has ${page.tokens.length} words`);
+  assert.equal(page.lines.length, 1, `kinetic page ${index} has ${page.lines.length} lines`);
+  const chars = page.tokens.map((token) => token.text).join(" ").length;
+  assert.ok(chars <= 14 || page.tokens.length === 1, `kinetic page ${index} is ${chars} characters`);
+}
+assert.deepEqual(
+  kineticPages.flatMap((page) => page.tokens.map((token) => token.text)),
+  pages.flatMap((page) => page.tokens.map((token) => token.text)),
+  "kinetic pages keep every word in order",
+);
+
 const fps = 25;
 const timingPage = (startSec: number, endSec: number): CaptionPage => ({ tokens: [], lines: [], start: startSec, end: endSec });
 const cutPages = [timingPage(1.0, 1.4), timingPage(1.48, 1.9), timingPage(3.0, 3.3), timingPage(5.0, 5.2)];

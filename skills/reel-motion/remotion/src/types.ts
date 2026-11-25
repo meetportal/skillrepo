@@ -59,11 +59,25 @@ export const captionSchema = z.object({
 
 export const accentStyleSchema = z.enum(["serif", "serifHeavy", "sansUnderline"]);
 
+export const captionStyleSchema = z.enum(["standard", "kinetic"]);
+
+export const kineticHighlightSchema = z.enum(["pill", "text"]);
+
+export const kineticOptionsSchema = z.object({
+  fontPx: z.number().min(72).max(130).default(100),
+  highlight: kineticHighlightSchema.default("pill"),
+  popFrames: z.number().int().min(3).max(4).default(4),
+  popFromScale: z.number().min(0.8).max(0.95).default(0.85),
+});
+
 export const captionOptionsSchema = z
   .object({
-    hookMaxWords: z.number().int().min(1).max(6).default(3),
-    bodyMinWords: z.number().int().min(1).max(6).default(2),
-    bodyMaxWords: z.number().int().min(1).max(6).default(4),
+    style: captionStyleSchema.default("standard"),
+    hookMaxWords: z.number().int().min(1).max(6).optional(),
+    bodyMinWords: z.number().int().min(1).max(6).optional(),
+    bodyMaxWords: z.number().int().min(1).max(6).optional(),
+    maxLines: z.number().int().min(1).max(2).optional(),
+    maxCharsPerLine: z.number().int().min(8).max(30).optional(),
     mergeAcrossPauseSec: z.number().min(0).max(1).default(0.25),
     accentStyle: accentStyleSchema.default("serif"),
     localScrim: z.number().min(0).max(0.4).default(0),
@@ -73,8 +87,9 @@ export const captionOptionsSchema = z
         card: z.number().min(brand.layout.topLogo.y1).max(brand.layout.safe.y1).optional(),
       })
       .optional(),
+    kinetic: kineticOptionsSchema.prefault({}),
   })
-  .refine((options) => options.bodyMinWords <= options.bodyMaxWords, { message: "bodyMinWords must not exceed bodyMaxWords" });
+  .refine((options) => (options.bodyMinWords ?? 1) <= (options.bodyMaxWords ?? 6), { message: "bodyMinWords must not exceed bodyMaxWords" });
 
 export const captionModeNameSchema = z.enum(["talk", "card", "takeover", "hidden"]);
 
@@ -210,6 +225,8 @@ export type CameraLimits = z.infer<typeof cameraLimitsSchema>;
 export type CaptionWord = z.infer<typeof captionSchema>;
 export type AccentStyle = z.infer<typeof accentStyleSchema>;
 export type CaptionOptions = z.infer<typeof captionOptionsSchema>;
+export type CaptionStyle = z.infer<typeof captionStyleSchema>;
+export type KineticOptions = z.infer<typeof kineticOptionsSchema>;
 export type CaptionModeName = z.infer<typeof captionModeNameSchema>;
 export type CaptionMode = z.infer<typeof captionModeSchema>;
 export type Beat = z.infer<typeof beatSchema>;

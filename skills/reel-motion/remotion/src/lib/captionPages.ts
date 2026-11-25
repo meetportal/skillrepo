@@ -6,13 +6,22 @@ export type PageToken = { text: string; start: number; end: number; accent: bool
 export type CaptionPage = { tokens: PageToken[]; lines: PageToken[][]; start: number; end: number };
 export type TimedPage = CaptionPage & { firstFrame: number; endFrame: number };
 
-export type PageRules = { hookMaxWords: number; bodyMinWords: number; bodyMaxWords: number; mergeAcrossPauseSec: number };
+export type PageRules = {
+  hookMaxWords: number;
+  bodyMinWords: number;
+  bodyMaxWords: number;
+  mergeAcrossPauseSec: number;
+  maxLines: number;
+  maxCharsPerLine: number;
+};
 
 export const defaultPageRules: PageRules = {
   hookMaxWords: captionRules.hookMaxWords,
   bodyMinWords: captionRules.bodyMinWords,
   bodyMaxWords: captionRules.bodyMaxWords,
   mergeAcrossPauseSec: captionRules.phrasePauseSec,
+  maxLines: captionRules.maxLines,
+  maxCharsPerLine: captionRules.maxCharsPerLine,
 };
 
 export const cutSnapMaxFrames = 3;
@@ -110,8 +119,7 @@ export const findAccentSpans = (tokens: RawToken[], accents: AccentSpec[]): Span
 
 const lineLength = (tokens: RawToken[]) => tokens.reduce((sum, token, index) => sum + token.text.length + (index > 0 ? 1 : 0), 0);
 
-export const layoutLines = <T extends RawToken>(tokens: T[]): T[][] | null => {
-  const { maxCharsPerLine, maxLines } = captionRules;
+export const layoutLines = <T extends RawToken>(tokens: T[], { maxCharsPerLine, maxLines }: Pick<PageRules, "maxCharsPerLine" | "maxLines"> = defaultPageRules): T[][] | null => {
   if (lineLength(tokens) <= maxCharsPerLine) {
     return [tokens];
   }
@@ -158,8 +166,8 @@ const accentCount = (page: number[], spans: Span[]) => spans.filter((span) => pa
 
 const isStopWord = (text: string) => breakStopWords.has(normalize(text));
 
-const pageFits = (page: number[], tokens: RawToken[], spans: Span[], maxWords: number) =>
-  page.length <= maxWords && accentCount(page, spans) <= 1 && layoutLines(page.map((index) => tokens[index]!)) !== null;
+const pageFits = (page: number[], tokens: RawToken[], spans: Span[], maxWords: number, rules: PageRules) =>
+  page.length <= maxWords && accentCount(page, spans) <= 1 && layoutLines(page.map((index) => tokens[index]!), rules) !== null;
 
 const pageCost = (
   page: number[],
@@ -174,7 +182,7 @@ const pageCost = (
   const first = tokens[page[0]!]!;
   const last = tokens[page[page.length - 1]!]!;
   let cost = breakCost.perPage;
-  if (!pageFits(page, tokens, spans, maxWords)) {
+  if (!pageFits(page, tokens, spans, maxWords, rules)) {
     cost += page.length === 1 ? breakCost.unfittable / 10 : breakCost.unfittable;
   }
   if (!endsPhraseHere && nextStart !== null) {
@@ -241,7 +249,7 @@ const breakPhrase = (
   return pages;
 };
 
-const mergeShortPages = (chunks: number[][], tokens: RawToken[], spans: Span[], maxWordsAt: (startSec: number) => number): number[][] => {
+const mergeShortPages = (chunks: number[][], tokens: RawToken[], spans: Span[], maxWordsAt: (startSec: number) => number, rules: PageRules): number[][] => {
   const pages = chunks.map((chunk) => [...chunk]);
   const startOf = (page: number[]) => tokens[page[0]!]!.start;
   const shownFor = (pageIndex: number) => {
@@ -250,7 +258,7 @@ const mergeShortPages = (chunks: number[][], tokens: RawToken[], spans: Span[], 
     const end = next ? startOf(next) : tokens[page[page.length - 1]!]!.end + captionRules.holdAfterLastWordSec;
     return end - startOf(page);
   };
-  const fits = (page: number[]) => pageFits(page, tokens, spans, maxWordsAt(startOf(page)));
+  const fits = (page: number[]) => pageFits(page, tokens, spans, maxWordsAt(startOf(page)), rules);
   let changed = true;
   while (changed) {
     changed = false;
@@ -293,9 +301,9 @@ export const buildCaptionPages = (
     return breakPhrase(phrase, tokens, spans, maxWordsAt, hookEndSec, nextStart, rules);
   });
 
-  return mergeShortPages(chunks, tokens, spans, maxWordsAt).map((page) => {
+  return mergeShortPages(chunks, tokens, spans, maxWordsAt, rules).map((page) => {
     const pageTokens: PageToken[] = page.map((index) => ({ ...tokens[index]!, accent: spanOf(spans, index) !== undefined }));
-    const lines = layoutLines(pageTokens) ?? [pageTokens];
+    const lines = layoutLines(pageTokens, rules) ?? [pageTokens];
     return {
       tokens: pageTokens,
       lines,

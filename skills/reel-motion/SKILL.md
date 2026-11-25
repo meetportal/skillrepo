@@ -20,6 +20,8 @@ remotion/                        Remotion 4.0.542 project (all @remotion/* pinne
   src/Reel.tsx                   [FramedBackground -> FramedWindow(] Camera -> LookOverlay [)] -> BeatLayer -> SectionBar -> TopLogo -> Captions (captions always last)
   src/components/Camera.tsx      OffthreadVideo with scale/translate keys and kick offsets, origin at the face centre
   src/components/Captions.tsx    caption pages, word reveal and layoutCaptionPages() (the boxes the renderer draws)
+  src/components/KineticCaption.tsx  kinetic page layout (measured word positions), word pop and the sliding active-word pill
+  src/lib/captionText.ts         caption token parts and text measuring shared by both caption styles
   src/components/BeatLayer.tsx   one Sequence per beat, ordered by `layer`; parses props with the component's schema
   src/components/TopLogo.tsx     persistent top-center brand mark (props `topLogo`)
   src/components/FramedStage.tsx navy background with a drifting glow and grid, and the rounded speaker window (props `layout`)
@@ -263,7 +265,9 @@ Details, caption options and accent styles live in `../reel-captions/SKILL.md`. 
 - Accents: `"word"` (first occurrence), `{"text": "word", "n": 2}` (that occurrence) or `{"text": "word", "n": "all"}`. At most one accent per page, an accent phrase is never split across pages, and leading or trailing punctuation renders in the base style.
 - Legibility: white Poppins and orange Lora both carry a tight dark shadow stack and a dark `paint-order` stroke, so accents read over skin and hands. Still run the contrast check of the captions skill.
 - Across cuts: a page that would end 1 to 3 frames after a cut ends on the cut frame, so the old page never shows for a frame or two on the new shot.
-- Caption options (`captions` in the beat map source, or `--captions-config`, stored as `props.captionOptions`): `hookMaxWords` 3, `bodyMinWords` 2, `bodyMaxWords` 4, `mergeAcrossPauseSec` 0.25, `accentStyle` `serif` | `serifHeavy` | `sansUnderline`, `localScrim` 0 to 0.4. The defaults give exactly today's pages and look.
+- Caption options (`captions` in the beat map source, or `--captions-config`, stored as `props.captionOptions`): `style` `standard` | `kinetic`, `hookMaxWords` 3, `bodyMinWords` 2, `bodyMaxWords` 4, `maxLines` 2, `maxCharsPerLine` 22, `mergeAcrossPauseSec` 0.25, `accentStyle` `serif` | `serifHeavy` | `sansUnderline`, `localScrim` 0 to 0.4, `centerY` `{talk, card}`, `kinetic` `{fontPx, highlight, popFrames, popFromScale}`. The defaults give exactly today's pages and look.
+- Kinetic captions (`"style": "kinetic"`): big centred Poppins ExtraBold pages of 1 to 3 words, each word pops in on its onset, the spoken word sits on an orange pill (or turns orange), centre x 540, y 1240 talk and 1010 card in full frame, one line at y 1418 in framed layout. Drawn by `src/components/KineticCaption.tsx`; details in `../reel-captions/SKILL.md`.
+- Every caption page is kept inside its band (y 220 to 1500, or window bottom + 14 to 1500 in framed layout): too tall shrinks, too close to an edge moves.
 
 ## Motion tokens (`theme.ts`, hooks in `ui/motion.ts`)
 

@@ -68,18 +68,40 @@ Set them per reel in the beat map source (`"captions": {...}`) or in a file pass
 
 | Key | Default | Range | Effect |
 |---|---|---|---|
+| `style` | `standard` | `standard`, `kinetic` | the look and the defaults of the page keys below (see Kinetic captions) |
 | `hookMaxWords` | 3 | 1 to 6 | words per page before the first cut |
-| `bodyMinWords` | 2 | 1 to 6 | body pages shorter than this cost extra (one-word pages are rare) |
-| `bodyMaxWords` | 4 | 1 to 6 | words per page after the first cut (at least `bodyMinWords`) |
+| `bodyMinWords` | 2 (kinetic 1) | 1 to 6 | body pages shorter than this cost extra (one-word pages are rare) |
+| `bodyMaxWords` | 4 (kinetic 3) | 1 to 6 | words per page after the first cut (at least `bodyMinWords`) |
+| `maxLines` | 2 (kinetic in framed layout 1) | 1 to 2 | lines per page |
+| `maxCharsPerLine` | 22 (kinetic 14) | 8 to 30 | characters per line when choosing breaks (a single longer word still fits by scaling) |
 | `mergeAcrossPauseSec` | 0.25 | 0 to 1 | a pause shorter than this stays inside a phrase; raising it also discounts every pause by the same amount when scoring a break, so "First" + 0.3 s pause + "warm every inbox." becomes one page at 0.5 |
 | `accentStyle` | `serif` | see below | how the accent word is drawn |
 | `localScrim` | 0 | 0 to 0.4 | opacity of a soft dark rounded shape behind the page |
+| `centerY` | none | `{talk?, card?}`, y 220 to 1500 | caption centre per mode; overrides the style and layout defaults |
+| `kinetic` | see below | object | kinetic look options (ignored by `standard`) |
 
 Punctuation still ends a phrase: "First," with a comma stays its own phrase whatever the pause. Use 3 for `bodyMaxWords` on a fast speaker and 0.4 to 0.5 for `mergeAcrossPauseSec` when list markers ("First", "Second") come out as one-word pages.
 
 Reveal: the page layout is reserved for all its words from the first frame (lines never re-centre). Each word fades in and rises 6 px over 4 frames; its first visible frame is 1 frame (40 ms) before its onset. No grey preview of unspoken words, no active-word colour.
 
-Style: Poppins Bold 700, 68 px, `#F8FCFC`, shadow `0 4px 16px rgba(0,0,0,0.6)`, no box. Position: centre x 510 (middle of the x 70 to 950 safe band), centre y 1180 in Talk and Takeover, y 1060 in Card, suppressed in `hidden`.
+Style: Poppins Bold 700, 68 px, `#F8FCFC`, shadow `0 4px 16px rgba(0,0,0,0.6)`, no box. Position: centre x 510 (middle of the x 70 to 950 safe band), centre y 1180 in Talk and Takeover, y 1060 in Card, suppressed in `hidden`. In the framed layout of `reel-motion` (`layout.mode: "framed"`) captions are centred on the window (x 540, max width 820) at y 1418 and kept inside the band from the window bottom + 14 to y 1500.
+
+Every page, standard or kinetic, is kept inside its band: y 220 (below the top logo zone) to 1500 (above the bottom 420 px) in full frame, window bottom + 14 to 1500 in framed layout. A page taller than the band scales down; a page that would cross an edge moves inside it.
+
+### Kinetic captions
+
+`"captions": {"style": "kinetic"}` draws big centred pages instead of the standard line: Poppins ExtraBold 800 at `kinetic.fontPx` (100), 1 to 3 words per page, at most 2 lines (1 in framed layout), centred on x 540 (max width 820). The page rules above are unchanged (scored breaks, accent phrases never split, cut-edge snap, hold breaks at takeover and hidden windows); only the defaults differ (`bodyMinWords` 1, `bodyMaxWords` 3, `maxCharsPerLine` 14).
+
+```json
+"captions": {"style": "kinetic", "kinetic": {"fontPx": 100, "highlight": "pill", "popFrames": 4, "popFromScale": 0.85}, "centerY": {"talk": 1240, "card": 1010}}
+```
+
+- Word pop: every word has its place on the page from the first frame (lines never re-centre) and appears on its own onset: opacity 0 to 1 from 2 frames before the onset to the onset, scale `popFromScale` (0.85) to 1 over `popFrames` (4) frames from 2 frames before the onset, ease-out, no overshoot. So it is partly visible 1 frame before its onset and settled 2 frames after.
+- Active word: the word being spoken (from 1 frame before its onset until the next word takes over; the last word keeps it until the page ends) is highlighted. `highlight: "pill"` (default) puts an accent-orange rounded pill (radius 0.2 em, 0.16 em side padding) behind it with ink `#141828` text; the pill slides to the next word on the same line over 3 frames and pops with the first word of a line. `highlight: "text"` turns the active word accent orange over 2 frames instead. Compared on reel 24 footage (beige wall, warm skin): the pill reads at a glance on every shot, orange text loses edge on the wall and against the accent serif, so pill is the default; use `text` on dark, busy footage where a solid shape would be heavy.
+- Accent words keep a distinct face: Lora Bold Italic at 1.06x in accent orange when not active, ink Lora on the pill when active (in `text` mode they stay orange Lora).
+- Legibility: white words carry a 0.075 em dark navy stroke (`paint-order: stroke fill`) and a soft shadow stack; on the pill the stroke and shadow fade out with the ink.
+- Position: full frame defaults are centre y 1240 in talk and y 1010 in card (two lines then end above the card zone at 1150 and start below the chin); framed layout uses its `captionY` (1418) and one line. `centerY` overrides both. Check the band rules above with stills over the busiest shots and with `render.sh --caption-boxes`.
+- `localScrim` works with kinetic pages too.
 
 ## 3. Accent selection
 
@@ -118,7 +140,7 @@ python $SKILLS/reel-captions/scripts/asr_diff.py --mode final --media out/reel.m
 
 ## 5. QA per page
 
-- Bounding box inside x 70 to 950, y 220 to 1500, clear of the mouth region of the face box.
+- Bounding box inside x 70 to 950, y 220 to 1500, clear of the mouth region of the face box (framed layout: below the window bottom, y 1344 to 1500; kinetic pill pages include the pill padding in their box).
 - First visible frame 0 to 2 frames before the word onset; page duration at least 0.35 s.
 - Contrast: the mean luma behind the text leaves white readable (check bright walls); if an accent fades into the wall, switch `accentStyle` or add `localScrim` (section 3).
 - Cuts: no page ends 1 to 3 frames after a cut (the renderer snaps these to the cut frame; `reel-qa` warns if one slips through).
