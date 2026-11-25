@@ -61,6 +61,32 @@ Files in `assets/logos/` (outlined, no font needed; `brand.json` keys in bracket
 - Never recolour, stretch, outline or add effects to the logo, except the soft drop shadow of the top logo. Minimum width 280 px on a 1080 px canvas.
 - The icon is Lucide's `mail` (ISC, `assets/logos/ISC-Lucide.txt`); the wordmark glyphs are outlined from Inter (OFL). To regenerate the files, outline "Mailinfra" from Inter at wght 700 with -0.025em tracking and place it 12 px after a 32 px icon (source units), baseline at half height plus half the cap height.
 
+## 3D (reel-3d)
+
+The `three` block in `brand.json` holds every 3D token; the `reel-3d` compositions read it from input props, so nothing is retyped in code.
+
+| Key | Value | Use |
+|---|---|---|
+| `backdrop` | `navyTop` to `navyBottom`, spot `#DFE5FF` at 0.18 | the same navy gradient as 2D takeovers and cards, with a soft light spot behind the object |
+| `fill` | hemisphere `#DFE5FF` / `#2A3050`, 1.0 | soft sky and ground light |
+| `key` | from (-4, 5, 8), 3.0, 2048 PCF shadow, bias -0.0004, normal bias 0.02 | the only shadow caster |
+| `rim` | from (4.5, 3.5, -4), 4.0, colour by `meaning` | the single coloured light |
+| `rim.meaning` | `danger`, `success`, `accent`, `brand` (= `brandBlueOnDark`), `warning` | the rim, base glow and label plate always carry the meaning of the moment: red mistake, green fixed, orange emphasis, blue Mail Infra, yellow pending |
+| `shadow` | `#060B1C` at 0.35 | floor shadow, stays navy |
+| `baseGlowOpacity` | 0.35 | additive glow under the object in the meaning colour |
+| `materials` | clay roughness 0.55, tile roughness 0.3 | matte objects and glossy plates |
+| `envelope` | body `cream`, flap `#E4DDCF`, seal `brandBlueOnDark` | the one envelope model used in every 3D moment |
+| `burnt` | `#3A1E24` | a burned domain ends dark red-brown, never black |
+| `darkest` | `#1A2038` | emissive floor of every 3D material; nothing on an object renders darker |
+| `camera` | fov 32 (vertical), near 0.1, far 200 | all 3D cameras |
+
+Rules:
+
+- The canvas renders without tone mapping, so unlit brand colours are exact (a `brandBlueOnDark` or `navyPanel` patch renders within 1 code of its hex). Lit surfaces shade, so a brand colour is judged on flat plates, not on shaded faces.
+- No bloom, no lens effects. Glow only on fire, the shield edge and a glint.
+- The 3D logo is the website header mark extruded from `logos.white` (or `logos.color` on cream), never a remodelled mark. `LogoExtrude3D` always ends on the exact flat mark: the same SVG at the same width and centre as the 2D `LogoPop` mark that follows it (same `card`, `widthPx` and `centerY`), so the 2D card takes over without a jump. It marks a brand moment earlier in the reel, never the last 3 s before the end card.
+- Labels on 3D objects use Poppins Bold from `fonts.sans`, at least 56 px cap height (44 px card text minimum when three labels share a card row).
+
 ## CTA rules
 
 - The URL is always **mailinfra.co**. Never `www.`, never `https://` on screen.

@@ -14,6 +14,7 @@ import Checklist, { schema as checklistSchema } from "./beats/Checklist";
 import ShieldSeal, { schema as shieldSealSchema } from "./beats/ShieldSeal";
 import LogoPop, { schema as logoPopSchema } from "./beats/LogoPop";
 import EndCard, { schema as endCardSchema } from "./beats/EndCard";
+import VideoInsert, { schema as videoInsertSchema } from "./beats/VideoInsert";
 
 export const registry: Record<string, BeatDefinition> = {
   HookHeadline: defineBeat(hookHeadlineSchema, HookHeadline),
@@ -31,4 +32,5 @@ export const registry: Record<string, BeatDefinition> = {
   ShieldSeal: defineBeat(shieldSealSchema, ShieldSeal),
   LogoPop: defineBeat(logoPopSchema, LogoPop),
   EndCard: defineBeat(endCardSchema, EndCard),
+  VideoInsert: defineBeat(videoInsertSchema, VideoInsert),
 };

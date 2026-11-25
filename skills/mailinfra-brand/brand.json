@@ -96,6 +96,23 @@
     "rail": {"x": 70, "y": 236, "segmentW": 64, "segmentH": 10, "count": 3},
     "topLogo": {"centerY": 170, "centerYMax": 280, "widthPx": 320, "x0": 70, "x1": 950, "y0": 120, "y1": 220}
   },
+  "three": {
+    "backdrop": {"top": "navyTop", "bottom": "navyBottom", "spot": "#DFE5FF", "spotOpacity": 0.18, "spotRadius": 0.42},
+    "fill": {"sky": "#DFE5FF", "ground": "#2A3050", "intensity": 1.0},
+    "key": {"position": [-4, 5, 8], "intensity": 3.0, "shadowMapSize": 2048, "shadowBounds": 4, "shadowBias": -0.0004, "shadowNormalBias": 0.02},
+    "rim": {
+      "position": [4.5, 3.5, -4],
+      "intensity": 4.0,
+      "meaning": {"danger": "danger", "success": "success", "accent": "accent", "brand": "brandBlueOnDark", "warning": "warning"}
+    },
+    "shadow": {"color": "#060B1C", "opacity": 0.35},
+    "baseGlowOpacity": 0.35,
+    "materials": {"clayRoughness": 0.55, "tileRoughness": 0.3},
+    "envelope": {"body": "cream", "flap": "#E4DDCF", "seal": "brandBlueOnDark"},
+    "burnt": "#3A1E24",
+    "darkest": "#1A2038",
+    "camera": {"fov": 32, "near": 0.1, "far": 200}
+  },
   "cta": {
     "url": "mailinfra.co",
     "pillColor": "ctaGold",
