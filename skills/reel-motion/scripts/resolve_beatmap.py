@@ -5,20 +5,30 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anchors import AnchorError, load_json, resolve_tree
+from anchors import AnchorError, frame_of, load_json, resolve_document
 
 MODES = ("talk", "card", "takeover", "hidden")
 
 
-def caption_modes(beats, duration):
+def on_grid(seconds, fps):
+    return round(frame_of(seconds, fps) / fps, 3)
+
+
+def caption_modes(beats, duration, fps):
     windows = []
+    last = on_grid(duration, fps)
     for beat in beats:
         mode = beat.get("mode", "talk")
         if mode not in MODES:
             raise SystemExit(f"beat {beat['id']}: mode {mode!r} not in {MODES}")
-        if mode != "talk":
-            windows.append((beat.get("modeFrom", beat["from"]), beat.get("modeTo", beat["to"]), mode))
-    points = sorted({0.0, duration, *[w[0] for w in windows], *[w[1] for w in windows]})
+        if mode == "talk":
+            continue
+        start, stop = (min(max(on_grid(beat.get(key, beat[edge]), fps), 0.0), last) for key, edge in (("modeFrom", "from"), ("modeTo", "to")))
+        if frame_of(stop, fps) - frame_of(start, fps) < 1:
+            print(f"warning: beat {beat['id']}: {mode} caption window {start:.3f}..{stop:.3f} is under one frame on the {fps} fps grid, dropped", file=sys.stderr)
+            continue
+        windows.append((start, stop, mode))
+    points = sorted({0.0, last, *[w[0] for w in windows], *[w[1] for w in windows]})
     modes = []
     for start, end in zip(points, points[1:]):
         middle = (start + end) / 2
@@ -32,16 +42,16 @@ def caption_modes(beats, duration):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Resolve a beat map source (anchors, per-beat caption mode) into beatmap.json with captionModes.")
+    parser = argparse.ArgumentParser(description="Resolve a beat map source (anchors, per-beat caption mode) into beatmap.json with captionModes. Anchors inside beats[].props become seconds relative to the beat's from (props.three stays absolute); caption-mode windows snap to the frame grid.")
     parser.add_argument("--cues", required=True)
-    parser.add_argument("--input", required=True, help="beat map source: {beats:[{id, component, mode, from, to, props, modeFrom?, modeTo?}], accents, topLogo?}")
+    parser.add_argument("--input", required=True, help="beat map source: {beats:[{id, component, mode, from, to, layer?, props, modeFrom?, modeTo?}], accents, captions?, topLogo?}")
     parser.add_argument("--out", required=True)
     parser.add_argument("--extra-sec", type=float, default=0.0, help="seconds after the A-roll covered by beats (end card)")
     args = parser.parse_args()
 
     cues = load_json(args.cues)
     try:
-        source = resolve_tree(load_json(args.input), cues)
+        source = resolve_document(load_json(args.input), cues)
     except AnchorError as error:
         sys.exit(f"anchor error: {error}")
     beats = source["beats"]
@@ -51,11 +61,12 @@ def main():
     duration = cues["duration"] + args.extra_sec
     beatmap = {
         "beats": beats,
-        "captionModes": source.get("captionModes") or caption_modes(beats, duration),
+        "captionModes": source.get("captionModes") or caption_modes(beats, duration, int(cues.get("fps", 25))),
         "accents": source.get("accents", []),
     }
-    if "topLogo" in source:
-        beatmap["topLogo"] = source["topLogo"]
+    for key in ("captions", "topLogo"):
+        if key in source:
+            beatmap[key] = source[key]
     Path(args.out).write_text(json.dumps(beatmap, indent=2) + "\n")
     for beat in beats:
         print(f"{beat['id']:8s} {beat['component']:16s} {beat['from']:6.2f}-{beat['to']:6.2f}  {beat.get('mode', 'talk')}")

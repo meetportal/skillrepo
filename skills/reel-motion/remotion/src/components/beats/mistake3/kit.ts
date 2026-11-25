@@ -9,8 +9,7 @@ export const easeInOutCubic = Easing.bezier(0.65, 0, 0.35, 1);
 export const easeInQuad = Easing.bezier(0.11, 0, 0.5, 0);
 export const easeOutCubic = Easing.bezier(0.33, 1, 0.68, 1);
 
-export const relFrame = (context: Pick<BeatContext, "beat" | "toFrame">, relativeSec: number) =>
-  context.toFrame(context.beat.from + relativeSec);
+export const relFrame = (context: Pick<BeatContext, "beat" | "toFrame">, relativeSec: number) => context.toFrame(relativeSec);
 
 export const ramp = (frame: number, start: number, frames: number, easing: (t: number) => number = motion.ease) =>
   interpolate(frame, [start, start + Math.max(1, frames)], [0, 1], { ...clamp, easing });
@@ -19,7 +18,7 @@ export const arrive = (frame: number, start: number) => {
   const progress = entranceProgress(frame, start);
   return {
     progress,
-    opacity: interpolate(frame, [start, start + 3], [0, 1], clamp),
+    opacity: interpolate(frame + 1, [start, start + 3], [0, 1], clamp),
     scale: 1 + (1 - progress) * (motion.arriveFromScale - 1),
     rise: Math.round((1 - progress) * motion.arriveFromOffsetPx),
   };

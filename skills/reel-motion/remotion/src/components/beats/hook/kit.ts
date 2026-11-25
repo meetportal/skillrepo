@@ -45,7 +45,7 @@ export const settleOffset = (frame: number, start: number, distancePx: number, f
 };
 
 export const fadeIn = (frame: number, start: number, frames = motion.entranceFrames) =>
-  interpolate(frame, [start, start + frames * 0.45], [0, 1], clamp);
+  interpolate(frame + 1, [start, start + frames * 0.45], [0, 1], clamp);
 
 export const exitAmount = (frame: number, exitEnd: number, frames = motion.exitFrames) =>
   interpolate(frame, [exitEnd - frames - 1, exitEnd - 1], [0, 1], { ...clamp, easing: motion.exitEase });

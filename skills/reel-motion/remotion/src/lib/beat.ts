@@ -19,5 +19,5 @@ export const defineBeat = <S extends z.ZodType>(schema: S, Component: BeatCompon
   render: (context, props) => createElement(Component, { ...context, props: props as z.output<S> }),
 });
 
-export const secondsToLocalFrame = (absoluteSec: number, beatFrom: number, fps: number) =>
-  Math.round(absoluteSec * fps) - Math.round(beatFrom * fps);
+export const beatSecondsToLocalFrame = (beatSec: number, beatFrom: number, fps: number) =>
+  Math.round((beatFrom + beatSec) * fps) - Math.round(beatFrom * fps);

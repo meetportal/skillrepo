@@ -238,12 +238,12 @@ const EnvelopeToSpam = ({ props, frame, durationInFrames, fps, beat, toFrame }: 
   const spamLeft = bandRight - trayWidth;
   const centreX = Math.round((bandLeft + bandRight) / 2);
 
-  const cover = ramp(frame, 0, props.coverFrames);
+  const cover = ramp(frame + 1, 0, props.coverFrames);
   const box = props.fromBox;
   const clip = box
     ? `inset(${box.y0 * (1 - cover)}px ${(layout.width - box.x1) * (1 - cover)}px ${(layout.height - box.y1) * (1 - cover)}px ${box.x0 * (1 - cover)}px round ${surface.cardRadius * (1 - cover)}px)`
     : "none";
-  const backdropOpacity = box ? 1 : interpolate(frame, [0, props.coverFrames], [0, 1], clamp);
+  const backdropOpacity = box ? 1 : interpolate(frame + 1, [0, props.coverFrames], [0, 1], clamp);
 
   const enter = relFrame(context, props.enterAt);
   const deflect = relFrame(context, props.deflectAt);

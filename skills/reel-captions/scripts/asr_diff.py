@@ -11,6 +11,9 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 SAMPLE_RATE = 16000
+GAP_MIN_SEC = 0.12
+QUIET_RUN_FRAMES = 8
+QUIET_PERCENTILE = 15
 
 
 def bare(text):
@@ -48,30 +51,64 @@ def splice_times(edl_path):
     return times
 
 
-def quiet_points(audio):
+def word_spans(words):
+    return sorted((word["startMs"] / 1000, word["endMs"] / 1000) for word in words)
+
+
+def inside_word(time, spans):
+    return any(start < time < end for start, end in spans)
+
+
+def gap_points(spans, min_gap=GAP_MIN_SEC):
+    points = []
+    latest_end = None
+    for start, end in spans:
+        if latest_end is not None and start - latest_end >= min_gap:
+            points.append(round((latest_end + start) / 2, 3))
+        latest_end = end if latest_end is None else max(latest_end, end)
+    return points
+
+
+def quiet_points(audio, min_run=QUIET_RUN_FRAMES):
     hop = SAMPLE_RATE // 100
     frames = len(audio) // hop
+    if frames == 0:
+        return []
     energy = np.sqrt(np.mean(audio[:frames * hop].reshape(frames, hop) ** 2, axis=1) + 1e-12)
-    threshold = np.percentile(energy, 15)
-    return [index / 100 for index in range(frames) if energy[index] <= threshold]
+    quiet = np.append(energy <= np.percentile(energy, QUIET_PERCENTILE), False)
+    points, run_start = [], None
+    for index, flag in enumerate(quiet):
+        if flag and run_start is None:
+            run_start = index
+        elif not flag and run_start is not None:
+            if index - run_start >= min_run:
+                points.append(round((run_start + index) / 2 / 100, 3))
+            run_start = None
+    return points
 
 
-def chunk_bounds(total, candidates, max_chunk):
+def chunk_bounds(total, tiers, max_chunk, spans=()):
+    usable = [sorted(t for t in tier if 0 < t < total and not inside_word(t, spans)) for tier in tiers]
+    word_ends = sorted(end for _, end in spans if not inside_word(end, spans))
     bounds, start = [], 0.0
-    candidates = sorted(t for t in candidates if 0 < t < total)
     while total - start > max_chunk:
-        inside = [t for t in candidates if start + 2.0 < t <= start + max_chunk]
-        stop = inside[-1] if inside else start + max_chunk
+        stop = None
+        for tier in usable + [word_ends]:
+            inside = [t for t in tier if start + 2.0 < t <= start + max_chunk]
+            if inside:
+                stop = inside[-1]
+                break
+        stop = start + max_chunk if stop is None else stop
         bounds.append((start, stop))
         start = stop
     bounds.append((start, total))
     return bounds
 
 
-def transcribe(audio, model_name, prompt, bounds):
+def transcribe(audio, model_name, prompt, bounds, threads):
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=threads)
     words = []
     pad = np.zeros(SAMPLE_RATE // 2, np.float32)
     for start, end in bounds:
@@ -111,7 +148,7 @@ def tokens_of(words, text_key, start_key, scale):
 
 def main():
     parser = argparse.ArgumentParser(description="One ASR diff for every stage: re-transcribe audio and diff it against the intended caption words (missing = clipped edge, extra = ghost or uncut retake, changed = slip or ASR variant).")
-    parser.add_argument("--mode", choices=["cut", "final"], default="final", help="cut: Stage 1 voice_cut.wav, chunked at the EDL audio splices (needs --edl); final (default): the delivered file, chunked at its quietest points")
+    parser.add_argument("--mode", choices=["cut", "final"], default="final", help="cut: Stage 1 voice_cut.wav, chunked at the EDL audio splices (needs --edl); final (default): the delivered file, chunked in the middle of word gaps of 120 ms or more, else in runs of 8+ quiet 10 ms frames; never inside a word")
     parser.add_argument("--words", "--intended", dest="words", required=True, help="words.out.json (Caption[])")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--media", help="audio or video file to transcribe")
@@ -123,6 +160,8 @@ def main():
     parser.add_argument("--model", default="large-v3")
     parser.add_argument("--prompt", default="")
     parser.add_argument("--max-chunk", type=float, default=20.0, help="whisper invents words at its own 30 s window edges, so audio is cut into chunks of at most this many seconds")
+    parser.add_argument("--threads", type=int, default=2, help="CPU threads for faster-whisper (0 lets it pick; keep 2 on a shared machine)")
+    parser.add_argument("--chunks-only", action="store_true", help="print the chunk bounds and exit without transcribing")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     if args.mode == "cut" and not args.edl and not args.heard:
@@ -134,9 +173,15 @@ def main():
     else:
         audio = decode(args.media)
         total = len(audio) / SAMPLE_RATE
-        candidates = splice_times(args.edl) if args.mode == "cut" else quiet_points(audio)
-        bounds = chunk_bounds(total, candidates, args.max_chunk)
-        heard_words = transcribe(audio, args.model, args.prompt, bounds)
+        spans = word_spans(expected)
+        tiers = [gap_points(spans), quiet_points(audio)]
+        if args.mode == "cut":
+            tiers.insert(0, splice_times(args.edl))
+        bounds = chunk_bounds(total, tiers, args.max_chunk, spans)
+        if args.chunks_only:
+            print(json.dumps([[round(a, 3), round(b, 3)] for a, b in bounds]))
+            return
+        heard_words = transcribe(audio, args.model, args.prompt, bounds, args.threads)
     intended = tokens_of(expected, "text", "startMs", 0.001)
     heard = tokens_of(heard_words, "text", "start", 1.0)
     aliases = alias_pairs(args.corrections, args.dictionary, args.allow)

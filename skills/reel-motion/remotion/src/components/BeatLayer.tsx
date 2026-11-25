@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
-import { secondsToLocalFrame } from "../lib/beat";
+import { beatSecondsToLocalFrame } from "../lib/beat";
 import { colors, layout } from "../theme";
 import type { Beat } from "../types";
 import { registry } from "./registry";
@@ -57,15 +57,19 @@ const BeatHost = ({ beat, row, durationInFrames }: { beat: Beat; row: number; du
   if (!parsed.ok) {
     return <ErrorBox beat={beat} row={row} title="BAD PROPS" details={parsed.issues} />;
   }
-  const toFrame = (absoluteSec: number) => secondsToLocalFrame(absoluteSec, beat.from, fps);
+  const toFrame = (beatSec: number) => beatSecondsToLocalFrame(beatSec, beat.from, fps);
   return definition.render({ beat, frame, durationInFrames, fps, toFrame }, parsed.value);
 };
 
+export const orderBeats = (beats: Beat[]) =>
+  beats.map((beat, index) => ({ beat, index })).sort((a, b) => (a.beat.layer ?? 0) - (b.beat.layer ?? 0) || a.index - b.index);
+
 export const BeatLayer = ({ beats }: { beats: Beat[] }) => {
   const { fps } = useVideoConfig();
+  const ordered = useMemo(() => orderBeats(beats), [beats]);
   return (
     <>
-      {beats.map((beat, index) => {
+      {ordered.map(({ beat, index }) => {
         const from = Math.round(beat.from * fps);
         const durationInFrames = Math.max(1, Math.round(beat.to * fps) - from);
         return (

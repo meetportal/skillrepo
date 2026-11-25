@@ -11,7 +11,7 @@ BASE=$WORK/motion/preview_props.json       # full camera + captions + one beat
 
 ## 1. Write a beat file
 
-One beat, in the same shape as a beat map entry. Times may be anchors (resolved with `--cues`) or plain output seconds. Times inside `props` are absolute output seconds too.
+One beat, in the same shape as a beat map entry. `from` and `to` may be anchors (resolved with `--cues`) or plain output seconds. Times inside `props` are seconds relative to the beat's `from`: an anchor there resolves beat-relative (`{"@rel": anchor}` is the explicit form, `{"@rel": 9.5}` converts an absolute time), and a plain number is already relative. Only `props.three` (the 3D spec of `VideoInsert`, see `../../reel-3d/SKILL.md`) stays in absolute seconds.
 
 ```json
 {
@@ -20,7 +20,8 @@ One beat, in the same shape as a beat map entry. Times may be anchors (resolved 
   "mode": "card",
   "from": {"@word": "example", "offset": -0.06},
   "to": {"@cutAfter": "example"},
-  "props": {"variant": "band", "kicker": "KICKER", "title": "A SHORT TITLE"}
+  "layer": 0,
+  "props": {"variant": "band", "kicker": "KICKER", "title": "A SHORT TITLE", "numeral": "2"}
 }
 ```
 
@@ -33,7 +34,7 @@ $PY -I $SKILL/scripts/swap_beat.py --props $BASE --beat beat.json --cues $WORK/c
   --out $WORK/motion/preview/my_props.json            # add --guides to draw the zones
 ```
 
-It prints the beat's frames and the entry (from + 4 frames) and exit (to - 2 frames) still times. To keep other beats on screen as well, pass a JSON list of beats instead of one.
+It prints the beat's frames and the first-frame (from + 0), entry (from + 4 frames) and exit (to - 2 frames) still times, and rejects a props time outside -0.5 s to the beat length. To keep other beats on screen as well, pass a JSON list of beats instead of one.
 
 ## 3. Render stills
 
@@ -41,7 +42,11 @@ It prints the beat's frames and the entry (from + 4 frames) and exit (to - 2 fra
 cd $SKILL/remotion && npx tsc -p .
 bash $SKILL/scripts/render.sh --props $WORK/motion/preview/my_props.json --public-dir $WORK \
   --still 7.40,7.60,7.92 --out $WORK/motion/preview/stills
+bash $SKILL/scripts/render.sh --props $WORK/motion/preview/my_props.json --public-dir $WORK \
+  --still-frames 185,189 --out $WORK/motion/preview/stills
 ```
+
+Always include the first frame (from + 0): with `entranceProgress` sampling one frame ahead it must already show the first step of the entrance, never an empty frame. On a shared machine set `REEL_RENDER_LOCK=/path/to/remotion.lock` (and keep `REEL_CONCURRENCY` at 2) so stills and renders queue instead of overlapping; wrapping the call in `flock` on the same file as well is safe, since `render.sh` skips its own lock when a parent already holds it.
 
 All stills share one bundle (about 15 s, then 1 to 2 s per still). Files are `still_<t>s.png`. Look at every one (Read the PNG): text size, zones, face and caption collisions, colour meanings.
 
@@ -71,6 +76,8 @@ ffmpeg -v error -y -i $WORK/motion/preview/clip.mp4 -vf "scale=270:-1,tile=10x3"
 ## Component contract (summary)
 
 - File `src/components/beats/<Name>.tsx`: `export const schema` (zod), `export type <Name>Props`, `export default <Name>`. The registry already maps every planned component; never edit `registry.ts` for an existing name.
-- Arguments: `{ props, frame, durationInFrames, fps, toFrame, beat }`. `frame` is 0 at `beat.from`; `toFrame(t)` turns an absolute time from props into a local frame.
+- Arguments: `{ props, frame, durationInFrames, fps, toFrame, beat }`. `frame` is 0 at `beat.from`; `toFrame(t)` turns a beat-relative time from props into a local frame on the output frame grid. Never add `beat.from` yourself.
 - Shared building blocks: `import { Card, Tile, Pill, Kicker, Icon, AccentText, zones, boxStyle, useEnterExit, useStamp, shakeOffset, staggerStart, toneColor } from "../ui"`, tokens from `../../theme`, brand files through `brandAsset()`/`brandLogo()` from `../../lib/brand`.
-- Rail and checklist: events `{t, segment, state}` with `railStatesAt(events, count, t)` from `../../lib/rail`; geometry from `railSegmentRect(i)` and `checklistRowRect(i, count)`, so the rail segments can travel to the checklist icon boxes at `morphIntoChecklistAt` and the `Checklist` (with `fromRail: true`) starts with its icons already in place.
+- Rail and checklist: events `{t, segment, state}` (beat-relative; earlier history may be negative) placed on the frame grid with `railEventsOnFrames(events, toFrame, fps)` and read with `railStatesAt(events, count, frame / fps)` from `../../lib/rail`; geometry from `railSegmentRect(i)` and `checklistRowRect(i, count)`, so the rail segments can travel to the checklist icon boxes at `morphIntoChecklistAt` and the `Checklist` (with `fromRail: true`) starts with its icons already in place.
+- Draw order: beats draw in ascending `layer` (default 0), list order within a layer; a persistent rail usually takes `"layer": 1`.
+- Shakes: `shakeOffset(frame, start, frames, amplitudePx)` is the camera kick's alternating decay; prefer a camera `kick` key (`../SKILL.md`, Kick) for an impact that should move the whole picture.

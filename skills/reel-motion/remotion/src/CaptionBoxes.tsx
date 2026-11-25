@@ -18,6 +18,8 @@ export const calculateCaptionBoxes: CalculateMetadataFunction<CaptionBoxesProps>
     hookEndSec: reel.cues.cuts.find((cut) => cut > 0) ?? reel.durationSec,
     fps: reel.fps,
     totalFrames,
+    cuts: reel.cues.cuts,
+    options: reel.captionOptions,
   });
   return { fps: reel.fps, durationInFrames: 1, props: { ...props, captionBoxes } };
 };

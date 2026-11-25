@@ -151,10 +151,10 @@ const EndCard = ({ props, frame, fps, durationInFrames }: BeatProps<EndCardProps
   }, props.centerY - stackHeight / 2);
   const topOf = (key: string) => topsByKey.get(key) ?? 0;
 
-  const wipe = interpolate(frame, [0, props.wipeFrames], [0, 1], { ...clamp, easing: motion.ease });
-  const travel = interpolate(frame, [0, props.wipeFrames + 3], [0, 1], { ...clamp, easing: motion.ease });
   const endPlacement = placeLogoCentered(endMeta, fullFrameCenterX, topOf("logo") + logoHeight / 2, props.logoWidthPx);
   const popGeometry = props.handoff ? logoPopGeometry(popMeta, props.handoff.widthPx, props.handoff.centerY) : null;
+  const wipe = interpolate(frame + 1, [0, props.wipeFrames], [0, 1], { ...clamp, easing: motion.ease });
+  const travel = interpolate(frame + 1, [0, props.wipeFrames + 3], [0, 1], { ...clamp, easing: motion.ease });
 
   const from = popGeometry?.card ?? { x0: 0, x1: layout.width, y0: layout.height, y1: layout.height };
   const towardsEdge = (gap: number) => gap * (1 - wipe) - wipeOverscanPx * wipe;

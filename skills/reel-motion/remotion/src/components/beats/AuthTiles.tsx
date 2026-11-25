@@ -267,7 +267,7 @@ const AuthTiles = ({ props, frame, durationInFrames, fps, beat, toFrame }: BeatP
   const flipStagger = Math.round(props.flipStaggerSec * fps);
   const dnsStart = settled ? -fps : props.dnsAt !== undefined ? relFrame(context, props.dnsAt) : (slamFrames[0] ?? 0) + 6;
   const exit = leave(frame, durationInFrames, props.exit);
-  const slotIn = settled ? 0 : ramp(frame, 0, 4);
+  const slotIn = settled ? 0 : ramp(frame + 1, 0, 4);
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: exit.opacity, transform: `translateY(${exit.y}px)` }}>
       {props.labels.map((label, index) => {

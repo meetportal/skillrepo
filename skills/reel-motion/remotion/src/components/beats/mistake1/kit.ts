@@ -6,14 +6,13 @@ import { entranceProgress, exitProgress } from "../../ui";
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 const fadeInFrames = 4;
 
-export const relFrame = (context: Pick<BeatContext, "beat" | "toFrame">, relativeSec: number) =>
-  context.toFrame(context.beat.from + relativeSec);
+export const relFrame = (context: Pick<BeatContext, "beat" | "toFrame">, relativeSec: number) => context.toFrame(relativeSec);
 
 export const riseIn = (frame: number, start: number, distancePx = motion.arriveFromOffsetPx) => {
   const progress = entranceProgress(frame, start);
   return {
     progress,
-    opacity: interpolate(frame, [start, start + fadeInFrames], [0, 1], clamp),
+    opacity: interpolate(frame + 1, [start, start + fadeInFrames], [0, 1], clamp),
     y: Math.round((1 - progress) * distancePx),
   };
 };

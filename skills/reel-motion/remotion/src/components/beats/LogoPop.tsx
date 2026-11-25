@@ -51,7 +51,7 @@ const LogoPop = ({ props, frame, fps, durationInFrames }: BeatProps<LogoPopProps
   const start = Math.round(props.popAt * fps);
   const cardProgress = entranceProgress(frame, start);
   const exit = props.exit === "fade" ? exitProgress(frame, durationInFrames) : 0;
-  const cardOpacity = interpolate(frame, [start, start + 2], [0, 1], clamp) * (1 - exit);
+  const cardOpacity = interpolate(frame + 1, [start, start + 2], [0, 1], clamp) * (1 - exit);
   const lift = Math.round((1 - cardProgress) * motion.arriveFromOffsetPx + exit * 16);
   const skin = cardSkins[props.card];
   const card = geometry.card;

@@ -271,11 +271,11 @@ const shakePattern = [0, 5, -4, 3, -2, 0];
 export const railVisualAt = (
   segment: { state: RailState; since: number; previous: RailState },
   index: number,
-  absoluteSec: number,
+  beatSec: number,
   fps: number,
   tones: RailTones,
 ): RailVisual => {
-  const dtFrames = Number.isFinite(segment.since) ? (absoluteSec - segment.since) * fps : Number.POSITIVE_INFINITY;
+  const dtFrames = Number.isFinite(segment.since) ? Math.round((beatSec - segment.since) * fps) : Number.POSITIVE_INFINITY;
   const toColor = railStateColor(segment.state, tones);
   const fromColor = railStateColor(segment.previous, tones);
   const emptyBorder = alpha(colors.text, 0.38);

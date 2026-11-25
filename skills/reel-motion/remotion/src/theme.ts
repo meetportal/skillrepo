@@ -101,6 +101,7 @@ export const motion = {
 
 export const camera = {
   maxScale: 1.2,
+  maxScaleLimit: 1.3,
   minScale: 1.0,
   pushFrames: 8,
   pushAmountMin: 0.04,
@@ -108,9 +109,42 @@ export const camera = {
   pushLeadFramesMin: 3,
   pushLeadFramesMax: 6,
   pushMinGapSec: 3,
-  creepAmount: 0.03,
+  creepAmount: 0.06,
+  creepMinShotSec: 2,
   creepEase: easeInOutSine,
   pushEase: easeOutExpo,
+  glideFrames: 18,
+  glideFramesMin: 12,
+  glideFramesMax: 24,
+  kickPx: 4.5,
+  kickFrames: 7,
+  kickRollDeg: 0.2,
+  kickAngleDeg: 60,
+  kickMinGapSec: 3,
+  kickHeadroomPx: 6,
+  cornerRadiusPx: 1101,
+  peakSpeedWarnPx: 37,
+};
+
+export const captionAccentStyles = {
+  serif: { fontFamily: fontFamilies.accent, fontStyle: "italic" as const, fontWeight: 600, scale: 1.08, strokePx: 6, color: colors.accent, underlinePx: 0 },
+  serifHeavy: { fontFamily: fontFamilies.accent, fontStyle: "italic" as const, fontWeight: 700, scale: 1.08, strokePx: 9, color: colors.accent, underlinePx: 0 },
+  sansUnderline: { fontFamily: fontFamilies.sans, fontStyle: "normal" as const, fontWeight: 700, scale: 1, strokePx: 5, color: colors.text, underlinePx: 6 },
+};
+
+export const captionUnderline = {
+  color: colors.accent,
+  gapPx: 2,
+  radiusPx: 3,
+  shadow: "0 2px 4px rgba(0,0,0,0.6), 0 0 2px rgba(8,16,36,0.9)",
+};
+
+export const captionScrim = {
+  color: "4,8,20",
+  padXPx: 56,
+  padYPx: 34,
+  blurPx: 22,
+  max: 0.4,
 };
 
 export const captionRules = {

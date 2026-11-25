@@ -11,10 +11,17 @@ const hookEndOf = (props: ReelProps) => props.cues.cuts.find((cut) => cut > 0) ?
 
 export const Reel = (props: ReelProps) => (
   <AbsoluteFill style={{ backgroundColor: "#000" }}>
-    <Camera src={props.aroll} keys={props.camera} cues={props.cues} />
+    <Camera src={props.aroll} keys={props.camera} cues={props.cues} limits={props.cameraLimits} />
     <BeatLayer beats={props.beats} />
     <TopLogo topLogo={props.topLogo} beats={props.beats} />
-    <Captions captions={props.captions} accents={props.accents} modes={props.captionModes} hookEndSec={hookEndOf(props)} />
+    <Captions
+      captions={props.captions}
+      accents={props.accents}
+      modes={props.captionModes}
+      hookEndSec={hookEndOf(props)}
+      cuts={props.cues.cuts}
+      options={props.captionOptions}
+    />
     {props.guides ? <SafeAreaGuides /> : null}
   </AbsoluteFill>
 );

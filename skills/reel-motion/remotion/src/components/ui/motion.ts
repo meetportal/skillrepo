@@ -10,7 +10,7 @@ const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 export const staggerStart = (start: number, index: number) => start + index * motion.staggerFrames;
 
 export const entranceProgress = (frame: number, start = 0, frames = motion.entranceFrames) =>
-  interpolate(frame, [start, start + frames], [0, 1], { ...clamp, easing: motion.ease });
+  interpolate(frame + 1, [start, start + frames], [0, 1], { ...clamp, easing: motion.ease });
 
 export const exitProgress = (frame: number, endFrame: number, frames = motion.exitFrames) =>
   interpolate(frame, [endFrame - frames, endFrame], [0, 1], { ...clamp, easing: motion.exitEase });
@@ -90,8 +90,8 @@ export const shakeOffset = (frame: number, start: number, frames = 2, amplitudeP
   if (local < 0 || local >= frames) {
     return { x: 0, y: 0 };
   }
-  const direction = local % 2 === 0 ? 1 : -1;
-  return { x: direction * amplitudePx, y: -direction * amplitudePx * 0.5 };
+  const signal = (local % 2 === 0 ? 1 : -1) * Math.pow(1 - local / frames, 1.5);
+  return { x: signal * amplitudePx, y: -signal * amplitudePx * 0.5 };
 };
 
 export const holdFramesFor = (words: number, fps: number) => Math.ceil((words * motion.holdPerWordSec + motion.holdBaseSec) * fps);

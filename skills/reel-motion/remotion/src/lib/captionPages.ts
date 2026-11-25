@@ -1,9 +1,21 @@
 import { createTikTokStyleCaptions } from "@remotion/captions";
 import { captionRules } from "../theme";
-import type { AccentSpec, CaptionWord } from "../types";
+import type { AccentSpec, CaptionMode, CaptionModeName, CaptionWord } from "../types";
 
 export type PageToken = { text: string; start: number; end: number; accent: boolean };
 export type CaptionPage = { tokens: PageToken[]; lines: PageToken[][]; start: number; end: number };
+export type TimedPage = CaptionPage & { firstFrame: number; endFrame: number };
+
+export type PageRules = { hookMaxWords: number; bodyMinWords: number; bodyMaxWords: number; mergeAcrossPauseSec: number };
+
+export const defaultPageRules: PageRules = {
+  hookMaxWords: captionRules.hookMaxWords,
+  bodyMinWords: captionRules.bodyMinWords,
+  bodyMaxWords: captionRules.bodyMaxWords,
+  mergeAcrossPauseSec: captionRules.phrasePauseSec,
+};
+
+export const cutSnapMaxFrames = 3;
 
 type RawToken = { text: string; start: number; end: number };
 type Span = { first: number; last: number };
@@ -120,14 +132,14 @@ export const layoutLines = <T extends RawToken>(tokens: T[]): T[][] | null => {
   return best;
 };
 
-const splitIntoPhrases = (tokens: RawToken[]): number[][] => {
+const splitIntoPhrases = (tokens: RawToken[], rules: PageRules): number[][] => {
   const phrases: number[][] = [];
   let current: number[] = [];
   tokens.forEach((token, index) => {
     const previous = tokens[index - 1];
     if (previous && current.length > 0) {
       const gap = token.start - previous.end;
-      if (endsPhrase(previous.text) || gap >= captionRules.phrasePauseSec) {
+      if (endsPhrase(previous.text) || gap >= rules.mergeAcrossPauseSec) {
         phrases.push(current);
         current = [];
       }
@@ -149,7 +161,16 @@ const isStopWord = (text: string) => breakStopWords.has(normalize(text));
 const pageFits = (page: number[], tokens: RawToken[], spans: Span[], maxWords: number) =>
   page.length <= maxWords && accentCount(page, spans) <= 1 && layoutLines(page.map((index) => tokens[index]!)) !== null;
 
-const pageCost = (page: number[], tokens: RawToken[], spans: Span[], maxWords: number, isHook: boolean, nextStart: number | null, endsPhraseHere: boolean) => {
+const pageCost = (
+  page: number[],
+  tokens: RawToken[],
+  spans: Span[],
+  maxWords: number,
+  isHook: boolean,
+  nextStart: number | null,
+  endsPhraseHere: boolean,
+  rules: PageRules,
+) => {
   const first = tokens[page[0]!]!;
   const last = tokens[page[page.length - 1]!]!;
   let cost = breakCost.perPage;
@@ -162,10 +183,13 @@ const pageCost = (page: number[], tokens: RawToken[], spans: Span[], maxWords: n
     } else if (weakEndWords.has(normalize(last.text)) && !endsPhrase(last.text)) {
       cost += breakCost.weakWordEnd;
     }
-    cost -= Math.max(0, nextStart - last.end) * breakCost.gapRewardPerSec;
+    const pauseDiscount = Math.max(0, rules.mergeAcrossPauseSec - captionRules.phrasePauseSec);
+    cost -= Math.max(0, nextStart - last.end - pauseDiscount) * breakCost.gapRewardPerSec;
   }
-  if (page.length === 1) {
-    cost += isHook ? breakCost.hookSingleWordPage : breakCost.singleWordPage;
+  if (isHook && page.length === 1) {
+    cost += breakCost.hookSingleWordPage;
+  } else if (!isHook && page.length < rules.bodyMinWords) {
+    cost += breakCost.singleWordPage * (rules.bodyMinWords - page.length);
   }
   const shownFor = (nextStart ?? last.end + captionRules.holdAfterLastWordSec) - first.start;
   if (shownFor < captionRules.minPageSec) {
@@ -181,8 +205,9 @@ const breakPhrase = (
   maxWordsAt: (startSec: number) => number,
   hookEndSec: number,
   phraseEndNext: number | null,
+  rules: PageRules,
 ): number[][] => {
-  const widest = Math.max(captionRules.hookMaxWords, captionRules.bodyMaxWords);
+  const widest = Math.max(rules.hookMaxWords, rules.bodyMaxWords);
   const count = phrase.length;
   const best: number[] = [0, ...Array<number>(count).fill(Number.POSITIVE_INFINITY)];
   const from: number[] = Array<number>(count + 1).fill(0);
@@ -199,7 +224,7 @@ const breakPhrase = (
       const maxWords = maxWordsAt(pageStart);
       const isHook = pageStart < hookEndSec;
       const nextStart = end < count ? tokens[phrase[end]!]!.start : phraseEndNext;
-      const total = best[start]! + pageCost(page, tokens, spans, maxWords, isHook, nextStart, end === count);
+      const total = best[start]! + pageCost(page, tokens, spans, maxWords, isHook, nextStart, end === count, rules);
       if (total < best[end]!) {
         best[end] = total;
         from[end] = start;
@@ -251,16 +276,21 @@ const mergeShortPages = (chunks: number[][], tokens: RawToken[], spans: Span[], 
   return pages;
 };
 
-export const buildCaptionPages = (captions: CaptionWord[], accents: AccentSpec[], hookEndSec: number): CaptionPage[] => {
+export const buildCaptionPages = (
+  captions: CaptionWord[],
+  accents: AccentSpec[],
+  hookEndSec: number,
+  rules: PageRules = defaultPageRules,
+): CaptionPage[] => {
   const tokens = tokenize(captions);
   const spans = findAccentSpans(tokens, accents);
-  const maxWordsAt = (startSec: number) => (startSec < hookEndSec ? captionRules.hookMaxWords : captionRules.bodyMaxWords);
-  const phrases = splitIntoPhrases(tokens);
+  const maxWordsAt = (startSec: number) => (startSec < hookEndSec ? rules.hookMaxWords : rules.bodyMaxWords);
+  const phrases = splitIntoPhrases(tokens, rules);
 
   const chunks = phrases.flatMap((phrase, phraseIndex) => {
     const nextPhrase = phrases[phraseIndex + 1];
     const nextStart = nextPhrase ? tokens[nextPhrase[0]!]!.start : null;
-    return breakPhrase(phrase, tokens, spans, maxWordsAt, hookEndSec, nextStart);
+    return breakPhrase(phrase, tokens, spans, maxWordsAt, hookEndSec, nextStart, rules);
   });
 
   return mergeShortPages(chunks, tokens, spans, maxWordsAt).map((page) => {
@@ -272,5 +302,32 @@ export const buildCaptionPages = (captions: CaptionWord[], accents: AccentSpec[]
       start: pageTokens[0]!.start,
       end: pageTokens[pageTokens.length - 1]!.end,
     };
+  });
+};
+
+export const modeFrames = (mode: CaptionMode, fps: number) => ({ first: Math.round(mode.from * fps), end: Math.round(mode.to * fps) });
+
+const holdBreakingModes: CaptionModeName[] = ["takeover", "hidden"];
+
+export const snapEndToCut = (endFrame: number, firstFrame: number, cutFrames: number[]) => {
+  const cut = cutFrames.find((frame) => frame > firstFrame && endFrame - frame >= 1 && endFrame - frame <= cutSnapMaxFrames);
+  return cut ?? endFrame;
+};
+
+export const timePages = (pages: CaptionPage[], modes: CaptionMode[], fps: number, totalFrames: number, cutFrames: number[] = []): TimedPage[] => {
+  const firstFrames = pages.map((page) => Math.max(0, Math.round(page.start * fps) - captionRules.leadFrames));
+  const holdBreaks = modes
+    .filter((mode) => holdBreakingModes.includes(mode.mode))
+    .map((mode) => modeFrames(mode, fps).first)
+    .sort((a, b) => a - b);
+  const cuts = [...cutFrames].sort((a, b) => a - b);
+  return pages.map((page, index) => {
+    const firstFrame = firstFrames[index]!;
+    const nextFirst = firstFrames[index + 1] ?? totalFrames;
+    const holdEnd = Math.round((page.end + captionRules.holdAfterLastWordSec) * fps);
+    const spokenEnd = Math.max(firstFrame + 1, Math.round(page.end * fps));
+    const holdBreak = holdBreaks.find((breakFrame) => breakFrame >= spokenEnd) ?? totalFrames;
+    const endFrame = Math.min(nextFirst, holdEnd, holdBreak, totalFrames);
+    return { ...page, firstFrame, endFrame: snapEndToCut(endFrame, firstFrame, cuts) };
   });
 };

@@ -14,6 +14,8 @@ export const schema = z.object({
   tone: toneSchema.default("accent"),
   titleSizePx: z.number().min(44).max(140).default(typeTokens.slam.fontSize),
   numeralSizePx: z.number().min(140).max(420).default(300),
+  numeralBleed: z.number().min(0).max(0.3).default(0),
+  kickerPadPx: z.number().min(0).max(80).optional(),
   bandTop: z.number().default(zones.card.y0),
   bandHeight: z.number().min(160).max(330).default(250),
   takeoverCenterY: z.number().default(740),
@@ -26,6 +28,10 @@ const kickerPx = 44;
 const kickerTracking = 0.2;
 const bandPadX = 56;
 const accentBarPx = 6;
+const numeralInsetPx = 28;
+const numeralTracking = 0.04;
+const bandKickerPadPx = 14;
+const takeoverKickerPadPx = 8;
 
 const Band = ({ props, frame, durationInFrames, ready }: { props: TitleSlamProps; frame: number; durationInFrames: number; ready: boolean }) => {
   const accent = toneColor(props.tone);
@@ -33,8 +39,8 @@ const Band = ({ props, frame, durationInFrames, ready }: { props: TitleSlamProps
   const innerWidth = box.x1 - box.x0 - bandPadX * 2 - accentBarPx - 28;
   const numeralPx = props.numeral ? Math.max(typeTokens.numeralMinPx, Math.min(props.numeralSizePx, props.bandHeight - 20)) : 0;
   const numeralWidth = props.numeral ? measureWidth(props.numeral, numeralPx, 800, -0.04, ready) : 0;
-  const numeralBleed = numeralWidth * 0.18;
-  const numeralReserve = props.numeral ? numeralWidth - numeralBleed - bandPadX + 28 : 0;
+  const numeralRight = numeralInsetPx + numeralTracking * numeralPx - numeralWidth * props.numeralBleed;
+  const numeralReserve = props.numeral ? Math.max(0, numeralRight + numeralWidth - bandPadX + 28) : 0;
   const titleFit = fitLines({
     text: props.title,
     maxWidth: innerWidth - numeralReserve,
@@ -69,7 +75,7 @@ const Band = ({ props, frame, durationInFrames, ready }: { props: TitleSlamProps
             <div
               style={{
                 position: "absolute",
-                right: -numeralBleed,
+                right: numeralRight,
                 top: "50%",
                 marginTop: -numeralPx * 0.5,
                 fontFamily: fontFamilies.sans,
@@ -116,7 +122,7 @@ const Band = ({ props, frame, durationInFrames, ready }: { props: TitleSlamProps
               transform: contentExit.transform,
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: props.kickerPadPx ?? bandKickerPadPx }}>
               {props.kicker ? (
                 <div
                   style={{
@@ -176,7 +182,7 @@ const Takeover = ({ props, frame, durationInFrames, ready }: { props: TitleSlamP
     maxLines: 2,
     ready,
   });
-  const bgIn = props.cutIn ? 1 : interpolate(frame, [0, 4], [0, 1], clampRange);
+  const bgIn = props.cutIn ? 1 : interpolate(frame + 1, [0, 4], [0, 1], clampRange);
   const bgOut = interpolate(frame, [durationInFrames - 4, durationInFrames], [1, 0], { ...clampRange, easing: Easing.inOut(Easing.quad) });
   const exitP = interpolate(frame, [durationInFrames - 7, durationInFrames - 3], [0, 1], { ...clampRange, easing: Easing.in(Easing.quad) });
   const contentExit = { opacity: 1 - exitP, transform: `scale(${1 - exitP * 0.04})` };
@@ -228,7 +234,7 @@ const Takeover = ({ props, frame, durationInFrames, ready }: { props: TitleSlamP
               lineHeight: 1,
               color: colors.muted,
               textTransform: "uppercase",
-              marginBottom: 8,
+              marginBottom: props.kickerPadPx ?? takeoverKickerPadPx,
               opacity: kicker.opacity,
               transform: kicker.transform,
             }}

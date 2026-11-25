@@ -1,16 +1,32 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anchors import AnchorError, load_json, resolve_tree
+from anchors import ABSOLUTE_PROP_KEYS, AnchorError, load_json, resolve_document
 
 MODES = {"talk", "card", "takeover", "hidden"}
-EASES = {"cut", "push", "creep", "hold"}
+EASES = {"cut", "push", "creep", "hold", "kick", "glide"}
+KICK_KEYS = {"px": (0.0, 12.0), "frames": (2, 12), "rollDeg": (0.0, 1.0), "angleDeg": (-360.0, 360.0)}
+GLIDE_FRAMES = (12, 24)
+DEFAULT_MAX_SCALE = 1.2
+MAX_SCALE_LIMIT = 1.3
+RELATIVE_TIME_MIN = -0.5
+TIME_KEY = re.compile(r"^(t|at|.*At|.*Times|.*Start|.*End)$")
+HISTORY_KEYS = {"events", "railEvents"}
+ACCENT_STYLES = ("serif", "serifHeavy", "sansUnderline")
+CAPTION_OPTIONS = {
+    "hookMaxWords": (int, 1, 6),
+    "bodyMinWords": (int, 1, 6),
+    "bodyMaxWords": (int, 1, 6),
+    "mergeAcrossPauseSec": (float, 0.0, 1.0),
+    "localScrim": (float, 0.0, 0.4),
+}
 
 
 def probe_duration(path):
@@ -41,8 +57,78 @@ def camera_keys(plan, duration, max_scale, problems):
         if not 0 <= key["t"] <= duration:
             problems.append(f"camera key at {key['t']}: outside 0..{duration}")
         scale = min(max(float(key["scale"]), 1.0), max_scale)
-        cleaned.append({"t": float(key["t"]), "scale": scale, "tx": float(key.get("tx", 0)), "ty": float(key.get("ty", 0)), "ease": key["ease"]})
+        entry = {"t": float(key["t"]), "scale": scale, "tx": float(key.get("tx", 0)), "ty": float(key.get("ty", 0)), "ease": key["ease"]}
+        if key["ease"] == "kick":
+            for name, (low, high) in KICK_KEYS.items():
+                if name in key:
+                    if not low <= key[name] <= high:
+                        problems.append(f"kick at {key['t']}: {name} {key[name]} outside {low}..{high}")
+                    entry[name] = int(key[name]) if name == "frames" else float(key[name])
+        if key["ease"] == "glide" and "frames" in key:
+            if not GLIDE_FRAMES[0] <= key["frames"] <= GLIDE_FRAMES[1]:
+                problems.append(f"glide at {key['t']}: frames {key['frames']} outside {GLIDE_FRAMES[0]}..{GLIDE_FRAMES[1]}")
+            entry["frames"] = int(key["frames"])
+        cleaned.append(entry)
     return sorted(cleaned, key=lambda item: item["t"])
+
+
+def plan_max_scale(plan, requested):
+    value = requested if requested is not None else (plan.get("maxScale") if isinstance(plan, dict) else None)
+    return float(value) if value is not None else DEFAULT_MAX_SCALE
+
+
+def time_values(value, key, path, history):
+    if isinstance(value, dict):
+        for child_key, child in value.items():
+            if child_key not in ABSOLUTE_PROP_KEYS:
+                yield from time_values(child, child_key, f"{path}.{child_key}", history or child_key in HISTORY_KEYS)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from time_values(item, key, f"{path}[{index}]", history)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool) and key is not None and TIME_KEY.match(key):
+        yield path, float(value), history
+
+
+def check_beat_times(beats, problems):
+    for beat in beats:
+        if not isinstance(beat.get("from"), (int, float)) or not isinstance(beat.get("to"), (int, float)):
+            continue
+        length = beat["to"] - beat["from"]
+        for path, value, history in time_values(beat.get("props", {}), None, "props", False):
+            low = float("-inf") if history else RELATIVE_TIME_MIN
+            if value < low - 1e-6 or value > length + 1e-6:
+                bounds = f"up to {length:.3f}" if history else f"{RELATIVE_TIME_MIN}..{length:.3f}"
+                problems.append(
+                    f"beat {beat.get('id')}: {path} = {value} s is outside the beat ({bounds} s from its from); "
+                    "times inside props are beat-relative"
+                )
+
+
+def check_caption_options(options, problems):
+    if not isinstance(options, dict):
+        problems.append("captions options must be an object")
+        return {}
+    unknown = set(options) - set(CAPTION_OPTIONS) - {"accentStyle"}
+    if unknown:
+        problems.append(f"captions options: unknown keys {sorted(unknown)}")
+    cleaned = {}
+    for name, (kind, low, high) in CAPTION_OPTIONS.items():
+        if name not in options:
+            continue
+        value = options[name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or (kind is int and int(value) != value) or not low <= value <= high:
+            problems.append(f"captions.{name} {value!r} must be {'an integer' if kind is int else 'a number'} in {low}..{high}")
+            continue
+        cleaned[name] = kind(value)
+    if "accentStyle" in options:
+        if options["accentStyle"] not in ACCENT_STYLES:
+            problems.append(f"captions.accentStyle {options['accentStyle']!r} not in {ACCENT_STYLES}")
+        else:
+            cleaned["accentStyle"] = options["accentStyle"]
+    body_min, body_max = cleaned.get("bodyMinWords", 2), cleaned.get("bodyMaxWords", 4)
+    if body_min > body_max:
+        problems.append(f"captions.bodyMinWords {body_min} is above bodyMaxWords {body_max}")
+    return cleaned
 
 
 def check_beats(beats, duration, problems):
@@ -57,6 +143,10 @@ def check_beats(beats, duration, problems):
         if not 0 <= beat.get("from", -1) < beat.get("to", -1) <= duration + 1e-6:
             problems.append(f"beat {beat.get('id')}: from/to {beat.get('from')}..{beat.get('to')} invalid for duration {duration}")
         beat.setdefault("props", {})
+        layer = beat.get("layer", 0)
+        if isinstance(layer, bool) or not isinstance(layer, int) or not -10 <= layer <= 10:
+            problems.append(f"beat {beat.get('id')}: layer {layer!r} must be an integer in -10..10")
+    check_beat_times(beats, problems)
 
 
 def check_modes(modes, problems):
@@ -120,18 +210,19 @@ def main():
     parser = argparse.ArgumentParser(description="Merge cues, words, beatmap and camera plan into Remotion props for the Reel composition.")
     parser.add_argument("--cues", required=True)
     parser.add_argument("--words", required=True, help="Remotion Caption[] on the output timeline")
-    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents, topLogo?}; @word/@cut anchors allowed")
+    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents, captions?, topLogo?}; anchors allowed (beat-relative inside beats[].props)")
     parser.add_argument("--camera", required=True, help="camera plan {keys:[{t,scale,tx,ty,ease}]}")
     parser.add_argument("--aroll", required=True, help="A-roll video file inside --public-dir")
     parser.add_argument("--public-dir", required=True, help="directory passed to remotion as --public-dir")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--max-scale", type=float, default=1.2)
+    parser.add_argument("--max-scale", type=float, default=None, help="camera scale ceiling (default: the camera plan's maxScale, else 1.20; at most 1.30)")
+    parser.add_argument("--captions-config", help="JSON caption options {hookMaxWords, bodyMinWords, bodyMaxWords, mergeAcrossPauseSec, accentStyle, localScrim}; overrides the beat map's captions block")
     parser.add_argument("--extra-sec", type=float, default=0.0, help="seconds appended after the A-roll (for example an end card)")
     args = parser.parse_args()
 
     cues = load_json(args.cues)
     try:
-        beatmap = resolve_tree(load_json(args.beatmap), cues)
+        beatmap = resolve_document(load_json(args.beatmap), cues)
     except AnchorError as error:
         sys.exit(f"anchor error: {error}")
     words = load_json(args.words)
@@ -145,7 +236,17 @@ def main():
     if abs(aroll_duration - float(cues["duration"])) > 1.0 / fps + 1e-6:
         print(f"warning: A-roll duration {aroll_duration:.3f} differs from cues duration {cues['duration']:.3f} by more than one frame")
 
-    camera = camera_keys(load_json(args.camera), duration, args.max_scale, problems)
+    plan = load_json(args.camera)
+    max_scale = plan_max_scale(plan, args.max_scale)
+    if not 1.0 < max_scale <= MAX_SCALE_LIMIT + 1e-9:
+        problems.append(f"max scale {max_scale} must be above 1.0 and at most {MAX_SCALE_LIMIT}")
+    if max_scale > DEFAULT_MAX_SCALE + 1e-9:
+        print(f"warning: max scale {max_scale} is above {DEFAULT_MAX_SCALE}: the upscale softens, check stills at the ceiling")
+    camera = camera_keys(plan, duration, max_scale, problems)
+    caption_source = beatmap.get("captions", {})
+    if args.captions_config:
+        caption_source = {**(caption_source if isinstance(caption_source, dict) else {}), **load_json(args.captions_config)}
+    caption_options = check_caption_options(caption_source, problems)
     beats = beatmap.get("beats", [])
     modes = beatmap.get("captionModes", [])
     check_beats(beats, duration, problems)
@@ -170,6 +271,7 @@ def main():
             "cuts": cues["cuts"],
         },
         "camera": camera,
+        "cameraLimits": {"maxScale": round(max_scale, 4)},
         "captions": [
             {"text": w["text"], "startMs": w["startMs"], "endMs": w["endMs"], "timestampMs": w.get("timestampMs"), "confidence": w.get("confidence")}
             for w in words
@@ -178,6 +280,8 @@ def main():
         "beats": beats,
         "accents": accents,
     }
+    if caption_options:
+        props["captionOptions"] = caption_options
     if top_logo is not None:
         props["topLogo"] = top_logo
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)

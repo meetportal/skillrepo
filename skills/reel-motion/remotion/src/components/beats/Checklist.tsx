@@ -1,7 +1,7 @@
 import { AbsoluteFill, interpolate } from "remotion";
 import { z } from "zod";
 import { timeSchema, toneSchema } from "../../lib/beatSchemas";
-import { railEventSchema, railStatesAt } from "../../lib/rail";
+import { railEventSchema, railEventsOnFrames, railStatesAt } from "../../lib/rail";
 import { colors, fontFamilies, motion, type as typeTokens, zones } from "../../theme";
 import type { BeatProps } from "../../types";
 import { checklistRowRect, entranceProgress, entranceStyle, exitProgress, stampScale, toneColor } from "../ui";
@@ -34,9 +34,8 @@ export const schema = z.object({
 export type ChecklistProps = z.infer<typeof schema>;
 
 const travelStaggerFrames = 0;
-const cardEnterStart = 3;
 
-const Checklist = ({ props, frame, durationInFrames, fps, toFrame, beat }: BeatProps<ChecklistProps>) => {
+const Checklist = ({ props, frame, durationInFrames, fps, toFrame }: BeatProps<ChecklistProps>) => {
   const ready = useFontsLoaded();
   const color = toneColor(props.tone);
   const count = props.items.length;
@@ -48,14 +47,13 @@ const Checklist = ({ props, frame, durationInFrames, fps, toFrame, beat }: BeatP
     fitLines({ text: item, maxWidth: textWidth, maxSize: props.itemSizePx, minSize: typeTokens.cardMinPx, fontWeight: 600, maxLines: 1, ready }),
   );
   const itemPx = Math.min(...fits.map((fit) => fit.fontSize));
-  const absoluteSec = beat.from + frame / fps;
-  const railStates = props.railEvents.length > 0 ? railStatesAt(props.railEvents, count, absoluteSec) : null;
+  const beatSec = frame / fps;
+  const railStates = props.railEvents.length > 0 ? railStatesAt(railEventsOnFrames(props.railEvents, toFrame, fps), count, beatSec) : null;
   const tones = { ...defaultRailTones, fixed: props.tone };
 
   const exitAll = props.exitMode === "all" ? exitProgress(frame, durationInFrames) : 0;
   const exitContent = props.exitMode === "none" ? 0 : exitProgress(frame, durationInFrames);
-  const cardStart = props.fromRail ? cardEnterStart : 0;
-  const cardP = entranceProgress(frame, cardStart);
+  const cardP = entranceProgress(frame, 0);
   const cardOpacity = interpolate(cardP, [0, 0.45], [0, 1], clampRange) * (1 - exitAll);
   const cardLift = (1 - cardP) * motion.arriveFromOffsetPx + exitAll * 12;
 
@@ -64,7 +62,7 @@ const Checklist = ({ props, frame, durationInFrames, fps, toFrame, beat }: BeatP
       return index * travelStaggerFrames + props.travelFrames;
     }
     const at = props.checkTimes[index];
-    return at === undefined ? cardStart + 6 + index * motion.staggerFrames : toFrame(at);
+    return at === undefined ? 6 + index * motion.staggerFrames : toFrame(at);
   };
 
   return (
@@ -89,7 +87,8 @@ const Checklist = ({ props, frame, durationInFrames, fps, toFrame, beat }: BeatP
       </div>
       {rows.map((row, index) => {
         const land = landFrame(index);
-        const text = entranceStyle(frame, { start: land - 5, from: "left" });
+        const textStart = props.fromRail ? Math.min(land - 5, index * motion.staggerFrames) : land - 5;
+        const text = entranceStyle(frame, { start: textStart, from: "left" });
         const textOpacity = text.opacity * (1 - exitContent);
         const rowCenter = (row.y0 + row.y1) / 2;
         return (
@@ -120,7 +119,7 @@ const Checklist = ({ props, frame, durationInFrames, fps, toFrame, beat }: BeatP
           const start = index * travelStaggerFrames;
           const travel = interpolate(frame, [start, start + props.travelFrames], [0, 1], { ...clampRange, easing: easeInOutTravel });
           const railSegment = railStates?.[index];
-          const railVisual = railSegment ? railVisualAt(railSegment, index, absoluteSec, fps, tones) : null;
+          const railVisual = railSegment ? railVisualAt(railSegment, index, beatSec, fps, tones) : null;
           const fromBox = railVisual ? railVisual.box : railChipRect(index);
           const box = lerpBox(fromBox, target, travel);
           const check = railVisual ? lerp(railVisual.checkProgress, 1, travel) : 1;

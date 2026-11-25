@@ -2,13 +2,11 @@ import { measureText } from "@remotion/layout-utils";
 import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill, continueRender, delayRender, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontsReady } from "../fonts";
-import { buildCaptionPages, splitPunctuation, type CaptionPage, type PageToken } from "../lib/captionPages";
-import { captionRules, layout, motion, type } from "../theme";
-import type { AccentSpec, CaptionMode, CaptionModeName, CaptionWord } from "../types";
+import { buildCaptionPages, modeFrames, splitPunctuation, timePages, type CaptionPage, type PageRules, type PageToken, type TimedPage } from "../lib/captionPages";
+import { captionAccentStyles, captionRules, captionScrim, captionUnderline, layout, motion, type } from "../theme";
+import { captionOptionsSchema, type AccentSpec, type AccentStyle, type CaptionMode, type CaptionModeName, type CaptionOptions, type CaptionWord } from "../types";
 
 const wordGapEm = 0.26;
-
-const modeFrames = (mode: CaptionMode, fps: number) => ({ first: Math.round(mode.from * fps), end: Math.round(mode.to * fps) });
 
 export const modeAtFrame = (modes: CaptionMode[], frame: number, fps: number): CaptionModeName => {
   let found: CaptionModeName = "talk";
@@ -21,24 +19,27 @@ export const modeAtFrame = (modes: CaptionMode[], frame: number, fps: number): C
   return found;
 };
 
-const holdBreakingModes: CaptionModeName[] = ["takeover", "hidden"];
-
 const pageUsesCardStage = (modes: CaptionMode[], startSec: number, endSec: number) =>
   modes.some((mode) => mode.mode === "card" && mode.from < endSec && mode.to > startSec);
 
-const baseFont = (scale: number) => ({
+type Font = { fontFamily: string; fontWeight: number; fontStyle: "normal" | "italic"; fontSize: number };
+
+const baseFont = (scale: number): Font => ({
   fontFamily: type.caption.fontFamily,
   fontWeight: type.caption.fontWeight,
-  fontStyle: "normal" as const,
+  fontStyle: "normal",
   fontSize: type.caption.fontSize * scale,
 });
 
-const accentFont = (scale: number) => ({
-  fontFamily: type.captionAccent.fontFamily,
-  fontWeight: type.captionAccent.fontWeight,
-  fontStyle: "italic" as const,
-  fontSize: type.caption.fontSize * scale * type.captionAccent.scale,
-});
+const accentFont = (style: AccentStyle, scale: number): Font => {
+  const accent = captionAccentStyles[style];
+  return {
+    fontFamily: accent.fontFamily,
+    fontWeight: accent.fontWeight,
+    fontStyle: accent.fontStyle,
+    fontSize: type.caption.fontSize * scale * accent.scale,
+  };
+};
 
 const tokenParts = (token: PageToken) => {
   if (!token.accent) {
@@ -52,7 +53,7 @@ const tokenParts = (token: PageToken) => {
   ].filter((part) => part.text.length > 0);
 };
 
-const measure = (text: string, font: { fontFamily: string; fontWeight: number; fontStyle: "normal" | "italic"; fontSize: number }) =>
+const measure = (text: string, font: Font) =>
   measureText({
     text,
     fontFamily: font.fontFamily,
@@ -62,37 +63,30 @@ const measure = (text: string, font: { fontFamily: string; fontWeight: number; f
     additionalStyles: { fontStyle: font.fontStyle },
   }).width;
 
-const lineWidth = (line: PageToken[]) =>
+const lineWidth = (line: PageToken[], style: AccentStyle) =>
   line.reduce(
     (sum, token, index) =>
       sum +
-      tokenParts(token).reduce((width, part) => width + measure(part.text, part.accent ? accentFont(1) : baseFont(1)), 0) +
+      tokenParts(token).reduce((width, part) => width + measure(part.text, part.accent ? accentFont(style, 1) : baseFont(1)), 0) +
       (index > 0 ? wordGapEm * type.caption.fontSize : 0),
     0,
   );
 
-const pageScale = (page: CaptionPage) => {
-  const widest = Math.max(...page.lines.map(lineWidth));
+const pageScale = (page: CaptionPage, style: AccentStyle) => {
+  const widest = Math.max(...page.lines.map((line) => lineWidth(line, style)));
   return Math.min(1, captionRules.maxLineWidthPx / widest);
 };
 
-type TimedPage = CaptionPage & { firstFrame: number; endFrame: number };
+export const resolveCaptionOptions = (options: unknown): CaptionOptions => captionOptionsSchema.parse(options ?? {});
 
-const timePages = (pages: CaptionPage[], modes: CaptionMode[], fps: number, totalFrames: number): TimedPage[] => {
-  const firstFrames = pages.map((page) => Math.max(0, Math.round(page.start * fps) - captionRules.leadFrames));
-  const holdBreaks = modes
-    .filter((mode) => holdBreakingModes.includes(mode.mode))
-    .map((mode) => modeFrames(mode, fps).first)
-    .sort((a, b) => a - b);
-  return pages.map((page, index) => {
-    const firstFrame = firstFrames[index]!;
-    const nextFirst = firstFrames[index + 1] ?? totalFrames;
-    const holdEnd = Math.round((page.end + captionRules.holdAfterLastWordSec) * fps);
-    const spokenEnd = Math.max(firstFrame + 1, Math.round(page.end * fps));
-    const holdBreak = holdBreaks.find((breakFrame) => breakFrame >= spokenEnd) ?? totalFrames;
-    return { ...page, firstFrame, endFrame: Math.min(nextFirst, holdEnd, holdBreak, totalFrames) };
-  });
-};
+const pageRulesOf = (options: CaptionOptions): PageRules => ({
+  hookMaxWords: options.hookMaxWords,
+  bodyMinWords: options.bodyMinWords,
+  bodyMaxWords: options.bodyMaxWords,
+  mergeAcrossPauseSec: options.mergeAcrossPauseSec,
+});
+
+export const cutFramesOf = (cuts: number[], fps: number) => cuts.filter((cut) => cut > 0).map((cut) => Math.round(cut * fps));
 
 const pageCenterY = (modes: CaptionMode[], page: TimedPage, fps: number) =>
   pageUsesCardStage(modes, page.firstFrame / fps, page.endFrame / fps) ? layout.captionY.card : layout.captionY.talk;
@@ -107,8 +101,13 @@ export type CaptionPageLayout = {
   bbox: [number, number, number, number];
 };
 
-const lineHeightPx = (line: PageToken[], scale: number) =>
-  Math.max(...line.map((token) => (token.accent ? accentFont(scale).fontSize : baseFont(scale).fontSize))) * type.caption.lineHeight;
+const lineHeightPx = (line: PageToken[], scale: number, style: AccentStyle) =>
+  Math.max(...line.map((token) => (token.accent ? accentFont(style, scale).fontSize : baseFont(scale).fontSize))) * type.caption.lineHeight;
+
+const pageSize = (page: CaptionPage, scale: number, style: AccentStyle) => ({
+  width: Math.max(...page.lines.map((line) => lineWidth(line, style) * scale)),
+  height: page.lines.reduce((sum, line) => sum + lineHeightPx(line, scale, style), 0),
+});
 
 export const layoutCaptionPages = ({
   captions,
@@ -117,6 +116,8 @@ export const layoutCaptionPages = ({
   hookEndSec,
   fps,
   totalFrames,
+  cuts,
+  options,
 }: {
   captions: CaptionWord[];
   accents: AccentSpec[];
@@ -124,13 +125,16 @@ export const layoutCaptionPages = ({
   hookEndSec: number;
   fps: number;
   totalFrames: number;
-}): CaptionPageLayout[] =>
-  timePages(buildCaptionPages(captions, accents, hookEndSec), modes, fps, totalFrames).map((page) => {
-    const scale = pageScale(page);
+  cuts: number[];
+  options?: unknown;
+}): CaptionPageLayout[] => {
+  const settings = resolveCaptionOptions(options);
+  const pages = timePages(buildCaptionPages(captions, accents, hookEndSec, pageRulesOf(settings)), modes, fps, totalFrames, cutFramesOf(cuts, fps));
+  return pages.map((page) => {
+    const scale = pageScale(page, settings.accentStyle);
     const centerY = pageCenterY(modes, page, fps);
-    const widths = page.lines.map((line) => lineWidth(line) * scale);
-    const height = page.lines.reduce((sum, line) => sum + lineHeightPx(line, scale), 0);
-    const half = Math.max(...widths) / 2;
+    const { width, height } = pageSize(page, scale, settings.accentStyle);
+    const half = width / 2;
     const visibleFrames: number[] = [];
     for (let frame = page.firstFrame; frame < page.endFrame; frame++) {
       if (modeAtFrame(modes, frame, fps) !== "hidden") {
@@ -147,23 +151,37 @@ export const layoutCaptionPages = ({
       bbox: [captionRules.centerX - half, centerY - height / 2, captionRules.centerX + half, centerY + height / 2],
     };
   });
+};
 
-const partStyle = (accent: boolean, scale: number) =>
-  accent
-    ? {
-        ...accentFont(scale),
-        color: type.captionAccent.color,
-        textShadow: type.captionAccent.textShadow,
-        WebkitTextStroke: `${type.captionAccent.strokePx * scale}px ${type.captionAccent.strokeColor}`,
-      }
-    : {
-        ...baseFont(scale),
-        color: type.caption.color,
-        textShadow: type.caption.textShadow,
-        WebkitTextStroke: `${type.caption.strokePx * scale}px ${type.caption.strokeColor}`,
-      };
+const partStyle = (accent: boolean, scale: number, style: AccentStyle) => {
+  if (!accent) {
+    return {
+      ...baseFont(scale),
+      color: type.caption.color,
+      textShadow: type.caption.textShadow,
+      WebkitTextStroke: `${type.caption.strokePx * scale}px ${type.caption.strokeColor}`,
+    };
+  }
+  const settings = captionAccentStyles[style];
+  const serif = settings.fontFamily === type.captionAccent.fontFamily;
+  return {
+    ...accentFont(style, scale),
+    color: settings.color,
+    textShadow: serif ? type.captionAccent.textShadow : type.caption.textShadow,
+    WebkitTextStroke: `${settings.strokePx * scale}px ${serif ? type.captionAccent.strokeColor : type.caption.strokeColor}`,
+    ...(settings.underlinePx > 0
+      ? {
+          textDecorationLine: "underline" as const,
+          textDecorationColor: captionUnderline.color,
+          textDecorationThickness: `${settings.underlinePx * scale}px`,
+          textUnderlineOffset: `${(settings.underlinePx + captionUnderline.gapPx) * scale}px`,
+          textDecorationSkipInk: "none" as const,
+        }
+      : {}),
+  };
+};
 
-const Word = ({ token, scale, frame, fps }: { token: PageToken; scale: number; frame: number; fps: number }) => {
+const Word = ({ token, scale, frame, fps, style }: { token: PageToken; scale: number; frame: number; fps: number; style: AccentStyle }) => {
   const revealStart = Math.round(token.start * fps) - captionRules.leadFrames - 1;
   const progress = interpolate(frame, [revealStart, revealStart + captionRules.revealFrames], [0, 1], {
     extrapolateLeft: "clamp",
@@ -179,7 +197,7 @@ const Word = ({ token, scale, frame, fps }: { token: PageToken; scale: number; f
       }}
     >
       {tokenParts(token).map((part, index) => (
-        <span key={index} style={{ ...partStyle(part.accent, scale), paintOrder: "stroke fill" }}>
+        <span key={index} style={{ ...partStyle(part.accent, scale, style), paintOrder: "stroke fill" }}>
           {part.text}
         </span>
       ))}
@@ -192,11 +210,15 @@ export const Captions = ({
   accents,
   modes,
   hookEndSec,
+  cuts,
+  options,
 }: {
   captions: CaptionWord[];
   accents: AccentSpec[];
   modes: CaptionMode[];
   hookEndSec: number;
+  cuts: number[];
+  options?: unknown;
 }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
@@ -213,13 +235,23 @@ export const Captions = ({
     }
   }, [fontsLoaded, layoutHandle]);
 
+  const settings = useMemo(() => resolveCaptionOptions(options), [options]);
   const pages = useMemo(
-    () => timePages(buildCaptionPages(captions, accents, hookEndSec), modes, fps, durationInFrames),
-    [captions, accents, modes, hookEndSec, fps, durationInFrames],
+    () => timePages(buildCaptionPages(captions, accents, hookEndSec, pageRulesOf(settings)), modes, fps, durationInFrames, cutFramesOf(cuts, fps)),
+    [captions, accents, modes, hookEndSec, fps, durationInFrames, cuts, settings],
   );
-  const scales = useMemo(() => (fontsLoaded ? pages.map(pageScale) : null), [pages, fontsLoaded]);
+  const sizes = useMemo(
+    () =>
+      fontsLoaded
+        ? pages.map((page) => {
+            const scale = pageScale(page, settings.accentStyle);
+            return { scale, ...pageSize(page, scale, settings.accentStyle) };
+          })
+        : null,
+    [pages, fontsLoaded, settings],
+  );
 
-  if (!scales || modeAtFrame(modes, frame, fps) === "hidden") {
+  if (!sizes || modeAtFrame(modes, frame, fps) === "hidden") {
     return null;
   }
   const pageIndex = pages.findIndex((page) => frame >= page.firstFrame && frame < page.endFrame);
@@ -227,11 +259,28 @@ export const Captions = ({
   if (!page) {
     return null;
   }
-  const scale = scales[pageIndex] ?? 1;
+  const size = sizes[pageIndex];
+  const scale = size?.scale ?? 1;
   const centerY = pageCenterY(modes, page, fps);
+  const scrim = Math.min(settings.localScrim, captionScrim.max);
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
+      {scrim > 0 && size ? (
+        <div
+          style={{
+            position: "absolute",
+            left: captionRules.centerX - size.width / 2 - captionScrim.padXPx,
+            top: centerY - size.height / 2 - captionScrim.padYPx,
+            width: size.width + captionScrim.padXPx * 2,
+            height: size.height + captionScrim.padYPx * 2,
+            borderRadius: (size.height + captionScrim.padYPx * 2) / 2,
+            backgroundColor: `rgba(${captionScrim.color},1)`,
+            opacity: scrim,
+            filter: `blur(${captionScrim.blurPx}px)`,
+          }}
+        />
+      ) : null}
       <div
         style={{
           position: "absolute",
@@ -251,7 +300,7 @@ export const Captions = ({
             style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: `${wordGapEm * type.caption.fontSize * scale}px` }}
           >
             {line.map((token) => (
-              <Word key={`${token.start}-${token.text}`} token={token} scale={scale} frame={frame} fps={fps} />
+              <Word key={`${token.start}-${token.text}`} token={token} scale={scale} frame={frame} fps={fps} style={settings.accentStyle} />
             ))}
           </div>
         ))}
