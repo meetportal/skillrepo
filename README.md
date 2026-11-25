@@ -24,6 +24,10 @@ Stage numbers match the stage table of `reel-director`.
 | 11 | [`reel-qa`](skills/reel-qa/SKILL.md) | `qa.py`: spec, loudness, drift and voice sync, rhythm, every-frame checks, cover windows, splice clicks, ASR diff, caption safe zone, levels, contact and side-by-side sheets; scored critic prompt |
 | - | [`craft-research`](skills/craft-research/SKILL.md) | yt-dlp and gh research recipes, reference reels measured in numbers (`measure_reference.py`), turning tutorials and owner notes into tested rules, untrusted-content handling, vetted sources |
 
+## Research
+
+`research/` holds the research behind these skills, written up as reusable notes: editing craft and the toolchain survey, the editing plan and its decisions, raw footage forensics and an edit review checklist, how the brand kit was rebuilt from the public website, and the 3D and QA research. Start at [`research/README.md`](research/README.md). When a note and a skill disagree, the skill is current.
+
 ## Install
 
 ```bash

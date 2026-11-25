@@ -124,7 +124,7 @@ Measured on three delivered talking-head reels of 49.5 s (1201 to 1238 frames, 2
 
 ## Performance
 
-On an 8-core CPU, a 49 s reel takes about 2 to 2.5 minutes for all gates: ASR about 55 s with 8 threads (about 100 s with `--threads 2`), levels about 20 s, sheets about 11 s (31 sheets), frames 8.5 to 11 s (decode 5 to 8 s, measurements about 2.5 s, about 550 MB of memory, 21 full sheets), rhythm about 7 s, captions 3 to 5 s, the rest under 2 s each. Run under `nice -n 19 ionice -c 3` on a shared machine.
+On an 8-core CPU, a 50 s reel takes about 2 to 2.5 minutes for all gates: ASR about 55 s with 8 threads (about 100 s with `--threads 2`), levels about 20 s, sheets about 11 s (31 sheets), frames 8.5 to 11 s (decode 5 to 8 s, measurements about 2.5 s, about 550 MB of memory, 21 full sheets), rhythm about 7 s, captions 3 to 5 s, the rest under 2 s each. Run under `nice -n 19 ionice -c 3` on a shared machine.
 
 ## Licence
 

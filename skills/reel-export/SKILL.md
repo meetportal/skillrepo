@@ -31,7 +31,7 @@ ffmpeg -i gfx.mp4 -i mix.wav \
 - `<V>` is the video length from its packet count (frames / fps). The audio is padded with silence or trimmed to exactly that. **Never `-shortest`**: it hides drift and can drop the last frames.
 - No scale and no range conversion here. The A-roll was converted to tv range once, in `reel-cut`; a second conversion lifts blacks by about 10 codes and dulls whites. The script rejects a graphics pass that is not 1080x1920, not 25 fps, or tagged full range.
 - The graphics pass is re-encoded (not stream-copied) so profile, level, GOP and colour tags are ours: Remotion's own output is level 4.0 with its own GOP.
-- CRF 18 with a 16 Mbit/s cap: a 49 s reel with graphics lands at about 10 Mbit/s, 60 MB. Platforms re-encode everything; a clean high-bitrate upload survives that better than a 3 to 5 Mbit/s file.
+- CRF 18 with a 16 Mbit/s cap: a 50 s reel with graphics lands at about 10 Mbit/s, 60 MB. Platforms re-encode everything; a clean high-bitrate upload survives that better than a 3 to 5 Mbit/s file.
 - `--preset` faster than `slow` is for drafts only. A 49 s reel at `slow` takes about 60 s on 8 cores.
 - Loudness is not touched here (the mix is mastered in `reel-sound`). The script measures it on the output and prints it; `reel-qa` gates it. AAC encoding can add 0.1 to 0.5 dB of true peak.
 
