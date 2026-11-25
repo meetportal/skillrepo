@@ -20,6 +20,7 @@ export const calculateCaptionBoxes: CalculateMetadataFunction<CaptionBoxesProps>
     totalFrames,
     cuts: reel.cues.cuts,
     options: reel.captionOptions,
+    layout: reel.layout,
   });
   return { fps: reel.fps, durationInFrames: 1, props: { ...props, captionBoxes } };
 };

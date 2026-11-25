@@ -174,3 +174,20 @@ export const look = {
   grainContrast: 2.2,
   grainMaxOpacity: 0.32,
 };
+
+export const framed = {
+  glowCenterY: 760,
+  glowDriftXPx: 170,
+  glowDriftYPx: 200,
+  glowRadiusPx: 900,
+  glowAlpha: 0.34,
+  warmCenterY: 1560,
+  warmRadiusPx: 760,
+  warmAlpha: 0.1,
+  gridStepPx: 72,
+  gridAlpha: 0.07,
+  gridMaskPx: 820,
+  sheenAlpha: 0.05,
+  defaultFaceY: 0.31,
+  windowShadow: "0 40px 90px rgba(0,0,0,0.55), 0 12px 30px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.25)",
+};

@@ -19,17 +19,26 @@ const subtract = (windows: Window[], hole: Window) =>
     ];
   });
 
-export const topLogoWindows = (settings: TopLogoProps, beats: Beat[], fps: number, totalFrames: number): Window[] => {
+export const visibleWindows = (
+  ranges: { from: number; to: number }[],
+  hideDuring: string[],
+  beats: Beat[],
+  fps: number,
+  totalFrames: number,
+): Window[] => {
   const toFrame = (sec: number) => Math.round(sec * fps);
-  const ranges = settings.ranges.length > 0 ? settings.ranges : [{ from: 0, to: totalFrames / fps }];
-  const base = ranges
+  const chosen = ranges.length > 0 ? ranges : [{ from: 0, to: totalFrames / fps }];
+  const base = chosen
     .map((range) => ({ start: toFrame(range.from), end: Math.min(totalFrames, toFrame(range.to)) }))
     .filter((window) => window.end > window.start);
   const holes = beats
-    .filter((beat) => settings.hideDuring.includes(beat.component))
+    .filter((beat) => hideDuring.includes(beat.component))
     .map((beat) => ({ start: toFrame(beat.from), end: toFrame(beat.to) }));
   return holes.reduce(subtract, base).filter((window) => window.end > window.start);
 };
+
+export const topLogoWindows = (settings: TopLogoProps, beats: Beat[], fps: number, totalFrames: number): Window[] =>
+  visibleWindows(settings.ranges, settings.hideDuring, beats, fps, totalFrames);
 
 export const TopLogo = ({ topLogo, beats }: { topLogo: unknown; beats: Beat[] }) => {
   const frame = useCurrentFrame();

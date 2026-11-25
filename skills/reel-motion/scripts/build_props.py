@@ -28,6 +28,10 @@ CAPTION_OPTIONS = {
     "localScrim": (float, 0.0, 0.4),
 }
 
+CAPTION_CENTER_Y = (220, 1500)
+LAYOUT_KEYS = {"mode", "window", "background", "captionY", "cardBeats", "takeoverClip"}
+SECTION_BAR_KEYS = {"enabled", "sections", "segments", "railEvents", "ranges", "hideDuring", "centerX", "kickerY", "railY", "enterFrames", "exitFrames", "rollFrames"}
+
 
 def probe_duration(path):
     result = subprocess.run(
@@ -108,7 +112,7 @@ def check_caption_options(options, problems):
     if not isinstance(options, dict):
         problems.append("captions options must be an object")
         return {}
-    unknown = set(options) - set(CAPTION_OPTIONS) - {"accentStyle"}
+    unknown = set(options) - set(CAPTION_OPTIONS) - {"accentStyle", "centerY"}
     if unknown:
         problems.append(f"captions options: unknown keys {sorted(unknown)}")
     cleaned = {}
@@ -125,6 +129,15 @@ def check_caption_options(options, problems):
             problems.append(f"captions.accentStyle {options['accentStyle']!r} not in {ACCENT_STYLES}")
         else:
             cleaned["accentStyle"] = options["accentStyle"]
+    if "centerY" in options:
+        center = options["centerY"]
+        if not isinstance(center, dict) or set(center) - {"talk", "card"}:
+            problems.append("captions.centerY must be an object with talk and/or card")
+        else:
+            for name, value in center.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not CAPTION_CENTER_Y[0] <= value <= CAPTION_CENTER_Y[1]:
+                    problems.append(f"captions.centerY.{name} {value!r} must be a number in {CAPTION_CENTER_Y[0]}..{CAPTION_CENTER_Y[1]}")
+            cleaned["centerY"] = center
     body_min, body_max = cleaned.get("bodyMinWords", 2), cleaned.get("bodyMaxWords", 4)
     if body_min > body_max:
         problems.append(f"captions.bodyMinWords {body_min} is above bodyMaxWords {body_max}")
@@ -226,11 +239,50 @@ def check_look(look, problems):
         problems.append("look.seed must be an integer")
 
 
+def check_layout(layout, problems):
+    if not isinstance(layout, dict):
+        problems.append("layout must be an object")
+        return
+    unknown = set(layout) - LAYOUT_KEYS
+    if unknown:
+        problems.append(f"layout: unknown keys {sorted(unknown)}")
+    if layout.get("mode", "full") not in ("full", "framed"):
+        problems.append(f"layout.mode {layout.get('mode')!r} must be full or framed")
+    if layout.get("takeoverClip", "frame") not in ("frame", "window"):
+        problems.append(f"layout.takeoverClip {layout.get('takeoverClip')!r} must be frame or window")
+    window = layout.get("window", {})
+    y0, y1 = window.get("y0", 356), window.get("y1", 1330)
+    if not y0 < y1:
+        problems.append(f"layout.window y0 {y0} must be above y1 {y1}")
+    caption_y = layout.get("captionY", {})
+    for name, value in caption_y.items():
+        if not y1 < value <= CAPTION_CENTER_Y[1]:
+            problems.append(f"layout.captionY.{name} {value} must be below the window (y1 {y1}) and at most {CAPTION_CENTER_Y[1]}")
+
+
+def check_section_bar(section_bar, duration, problems):
+    if not isinstance(section_bar, dict):
+        problems.append("sectionBar must be an object")
+        return
+    unknown = set(section_bar) - SECTION_BAR_KEYS
+    if unknown:
+        problems.append(f"sectionBar: unknown keys {sorted(unknown)}")
+    for item in section_bar.get("sections", []):
+        if not isinstance(item, dict) or not isinstance(item.get("label"), str) or not 0 <= item.get("from", -1) <= duration:
+            problems.append(f"sectionBar section {item!r} needs from (0..{duration}) and a label string")
+        elif "\u2014" in item["label"]:
+            problems.append(f"sectionBar label {item['label']!r} contains an em-dash")
+    segments = section_bar.get("segments", 3)
+    for event in section_bar.get("railEvents", []):
+        if not 0 <= event.get("segment", -1) < max(1, segments) or event.get("state") not in ("empty", "active", "marked", "fixed"):
+            problems.append(f"sectionBar rail event {event!r} invalid")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Merge cues, words, beatmap and camera plan into Remotion props for the Reel composition.")
     parser.add_argument("--cues", required=True)
     parser.add_argument("--words", required=True, help="Remotion Caption[] on the output timeline")
-    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents, captions?, topLogo?, look?}; anchors allowed (beat-relative inside beats[].props)")
+    parser.add_argument("--beatmap", required=True, help="{beats, captionModes, accents, captions?, topLogo?, look?, layout?, sectionBar?}; anchors allowed (beat-relative inside beats[].props)")
     parser.add_argument("--camera", required=True, help="camera plan {keys:[{t,scale,tx,ty,ease}]}")
     parser.add_argument("--aroll", required=True, help="A-roll video file inside --public-dir")
     parser.add_argument("--public-dir", required=True, help="directory passed to remotion as --public-dir")
@@ -276,6 +328,12 @@ def main():
     top_logo = beatmap.get("topLogo")
     if top_logo is not None:
         check_top_logo(top_logo, duration, fps, problems)
+    layout = beatmap.get("layout")
+    if layout is not None:
+        check_layout(layout, problems)
+    section_bar = beatmap.get("sectionBar")
+    if section_bar is not None:
+        check_section_bar(section_bar, duration, problems)
     look = beatmap.get("look")
     if look is not None:
         check_look(look, problems)
@@ -309,6 +367,10 @@ def main():
         props["topLogo"] = top_logo
     if look is not None:
         props["look"] = look
+    if layout is not None:
+        props["layout"] = layout
+    if section_bar is not None:
+        props["sectionBar"] = section_bar
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(props, indent=1) + "\n")
     print(f"wrote {os.path.abspath(args.out)}: {len(words)} words, {len(beats)} beats, {len(camera)} camera keys, {duration:.2f} s")

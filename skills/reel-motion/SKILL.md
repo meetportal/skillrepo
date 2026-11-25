@@ -17,17 +17,20 @@ remotion/                        Remotion 4.0.542 project (all @remotion/* pinne
   src/theme.ts                   colour, type, zone, surface, motion, camera and caption tokens
   src/lib/brand.ts               the brand file (alias target) and brandAsset()/brandLogo() for public assets
   src/fonts.ts                   local fonts via @remotion/fonts + load assertion (render fails if a face is missing)
-  src/Reel.tsx                   Camera -> LookOverlay -> BeatLayer -> TopLogo -> Captions (captions always last)
+  src/Reel.tsx                   [FramedBackground -> FramedWindow(] Camera -> LookOverlay [)] -> BeatLayer -> SectionBar -> TopLogo -> Captions (captions always last)
   src/components/Camera.tsx      OffthreadVideo with scale/translate keys and kick offsets, origin at the face centre
   src/components/Captions.tsx    caption pages, word reveal and layoutCaptionPages() (the boxes the renderer draws)
   src/components/BeatLayer.tsx   one Sequence per beat, ordered by `layer`; parses props with the component's schema
   src/components/TopLogo.tsx     persistent top-center brand mark (props `topLogo`)
+  src/components/FramedStage.tsx navy background with a drifting glow and grid, and the rounded speaker window (props `layout`)
+  src/components/SectionBar.tsx  section kicker that rolls per section plus the three-segment rail (props `sectionBar`)
   src/components/LookOverlay.tsx vignette and seeded film grain over the footage, under every graphic (props `look`)
   src/components/registry.ts     component name -> defineBeat(schema, Component)
   src/components/beats/*.tsx     one file per beat component (default export + `schema`)
   src/components/ui/             shared primitives: Card, Tile, Pill, Kicker, Icon, AccentText, SafeArea, motion hooks
   src/lib/camera.ts              key sampling (cut, push, glide, creep, hold), kick offsets, edge clamp (never shows an edge)
   src/lib/captionPages.ts        page builder (createTikTokStyleCaptions tokens + scored page breaks) and page timing
+  src/lib/stage.ts               layout resolution, window geometry, the caption stage (centre x, width, y per mode, allowed band)
   src/lib/rail.ts                progress rail events and state lookup
   PREVIEW.md                     render one beat over the real A-roll (still and short clip)
 scripts/
@@ -127,6 +130,62 @@ The logo must be fully in by 1.0 s (`build_props.py` fails otherwise): start the
 
 `LogoPop` (`card` `cream` or `navy`; the logo defaults to `color` on cream and `white` on navy) animates the icon first and the wordmark after it, split at the brand's `logoMark.iconSplit` (`markSplit: null` pops the whole mark at once). `EndCard` uses the `color` mark (default `logoWidthPx` 640); its `handoff` takes the pop's `card`, `widthPx` and `centerY`, and a navy pop card fades to cream while the white mark crossfades to the colour mark.
 
+## Framed layout
+
+`layout` (beat map source or `props.json`) switches the speaker from full frame to a rounded window on the branded navy background. Without `layout`, or with `"mode": "full"`, nothing changes. Every key has a default; `{"mode": "framed"}` is a complete layout.
+
+```json
+"layout": {
+  "mode": "framed",
+  "window": {"width": 880, "centerX": 540, "y0": 356, "y1": 1330, "radius": 36, "borderPx": 2, "zoom": 1, "focusY": 0.4},
+  "background": {"glow": 0.6, "grid": 0.35, "periodSec": 16},
+  "captionY": {"talk": 1418, "card": 1418},
+  "cardBeats": {"dx": 30, "dy": -166, "scale": 0.94},
+  "takeoverClip": "frame"
+}
+```
+
+Framed zones (1080x1920):
+
+| Zone | Box |
+|---|---|
+| top logo | y 120 to 220, `topLogo.centerY` 170 (the default) |
+| section bar | y 232 to 340: kicker centre y 262, rail top y 300 (bars y 300 to 310, a `fixed` chip reaches y 340) |
+| window | x 100 to 980, y 356 to 1330 (880 x 974), radius 36, 2 px `border` colour, soft shadow |
+| card beats | the card zone (x 70 to 950, y 1150 to 1480) moved by `cardBeats`: x 127 to 953, y 994 to 1304, inside the lower part of the window with a 26 px margin |
+| captions | centre x 540, centre y 1418, max line width 820, band y 1344 to 1500 |
+| empty | y 1500 to 1920 (platform UI) |
+
+- `window.width`, `centerX`, `y0`, `y1`, `radius`, `borderPx`: the window box. The video keeps its 1080x1920 framing inside it: it is scaled by `width / 1080 * zoom`, the current shot's face centre (`cues` face box) lands at `focusY` of the window height (0.4 keeps the eyes in the upper half with headroom), and the offset is clamped so the window never shows past the video edge. At zoom 1 the window shows the full width and source y of about 130 to 1330, so the chin and hands stay in.
+- Camera keys (cut, push, glide, creep, kick) apply to the video inside the window exactly as in full frame; the window itself never moves.
+- `background.glow` (0 to 1): a soft brand-blue glow and a faint warm glow drifting on a `periodSec` loop. `background.grid` (0 to 1): a 72 px hairline grid that only shows under the moving glow. Both are slow and quiet; 0 switches them off.
+- `captionY` is the caption centre per mode in framed layout (`captions.centerY` overrides it). Captions are centred on the window (`centerX`), at most 820 px wide, and always kept inside the band between the window bottom + 14 and y 1500: a page that is too tall shrinks, then moves. So two standard lines sit at about y 1344 to 1500 and kinetic captions should use one line in framed layout (see `../reel-captions/SKILL.md`).
+- `cardBeats`: every beat whose beat-map `mode` is `card` is moved by `translate(dx, dy) scale(scale)` about the card zone centre (510, 1315). The defaults centre the card zone on the window and inset it 26 px; card text drawn at 44 px renders at about 41 px. `{"dx": 30, "dy": -170, "scale": 1}` keeps full size with the card edges flush on the window edges.
+- `takeoverClip`: `frame` (default) lets `takeover` beats cover the whole frame (navy over navy, clean); `window` clips them to the window box with its radius, so the background, section bar and logo stay and only the window content changes. A takeover that draws above y 356 (for example `EnvelopeToSpam` with its default `bandTop` 280) gets cut at the window top with `window`; with `frame` it overlaps the section bar, so add its component to `sectionBar.hideDuring` or move its band down.
+- `talk` beats are not moved. `HookHeadline` defaults to y 236 (the section bar): in framed layout give it `"top": 400` or more so it sits inside the window top, or start the section bar after the hook. Do not use `ProgressRail` together with the section bar (the bar has its own rail).
+- Render order in framed layout: background, window (video, look overlay, top sheen, border), beats, section bar, top logo, captions.
+
+## Section bar
+
+`sectionBar` (top level, like `topLogo`; times absolute output seconds, anchors allowed in the source) draws a kicker line whose text rolls to the next section, with the brand's three-segment rail under it. Off unless enabled. Designed for the framed layout; over full-frame footage keep it at y 236 or lower and look at stills.
+
+```json
+"sectionBar": {
+  "enabled": true,
+  "sections": [{"from": 0, "label": "3 mistakes"}, {"from": {"@word": "first"}, "label": "Mistake 01 · Vendors"}],
+  "segments": 3,
+  "railEvents": [{"t": 7.28, "segment": 0, "state": "active"}, {"t": 17.07, "segment": 0, "state": "marked"}],
+  "ranges": [],
+  "hideDuring": ["EndCard", "LogoPop"],
+  "centerX": 540, "kickerY": 262, "railY": 300,
+  "enterFrames": 8, "exitFrames": 5, "rollFrames": 9
+}
+```
+
+- `sections`: the label shown from each `from` until the next one (uppercase brand kicker: Poppins 500, 36 px, 0.2 em tracking, accent orange). The change is a 9-frame roll: the old label slides up out of a soft-edged 60 px band while the new one slides up into it, so the two never overlap. An empty label shows the rail alone. Keep labels to about 24 characters (they do not wrap or shrink).
+- `railEvents`: the same `{t, segment, state}` events as `ProgressRail` (`empty`, `active` orange, `marked` red, `fixed` green chip with a check), in absolute seconds. `segments: 0` hides the rail.
+- `ranges` / `hideDuring` / `enterFrames` / `exitFrames`: the same visibility rules as `TopLogo` (whole reel when `ranges` is empty; the bar fades out before a listed component's beat and back in after it).
+
 ## Look overlay
 
 `look` (beat map source or `props.json`, off unless set) draws a cinematic vignette and film grain above the camera and below every beat, the top logo and the captions. In framed layout it sits inside the window (see Framed layout), so the navy background and the window border stay clean.
@@ -185,6 +244,8 @@ Graphics never use the bottom 420 px or the right 130 px. Zones (`zones` in `the
 | rail | from the brand's `layout.rail` (x 70, y 236, three 64x10 segments) |
 | takeoverBand | x 70 to 950, y 380 to 1060 (leaves y 1180 free for captions) |
 | topLogo | x 70 to 950, y 120 to 220 (brand `layout.topLogo`): reserved for the persistent top logo, nothing else is drawn there |
+
+Framed layout has its own zones (see Framed layout).
 
 | Mode | Speaker | Graphic zone | Captions |
 |---|---|---|---|

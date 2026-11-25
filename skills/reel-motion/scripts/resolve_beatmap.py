@@ -44,7 +44,7 @@ def caption_modes(beats, duration, fps):
 def main():
     parser = argparse.ArgumentParser(description="Resolve a beat map source (anchors, per-beat caption mode) into beatmap.json with captionModes. Anchors inside beats[].props become seconds relative to the beat's from (props.three stays absolute); caption-mode windows snap to the frame grid.")
     parser.add_argument("--cues", required=True)
-    parser.add_argument("--input", required=True, help="beat map source: {beats:[{id, component, mode, from, to, layer?, props, modeFrom?, modeTo?}], accents, captions?, topLogo?, look?}")
+    parser.add_argument("--input", required=True, help="beat map source: {beats:[{id, component, mode, from, to, layer?, props, modeFrom?, modeTo?}], accents, captions?, topLogo?, look?, layout?, sectionBar?}")
     parser.add_argument("--out", required=True)
     parser.add_argument("--extra-sec", type=float, default=0.0, help="seconds after the A-roll covered by beats (end card)")
     args = parser.parse_args()
@@ -64,7 +64,7 @@ def main():
         "captionModes": source.get("captionModes") or caption_modes(beats, duration, int(cues.get("fps", 25))),
         "accents": source.get("accents", []),
     }
-    for key in ("captions", "topLogo", "look"):
+    for key in ("captions", "topLogo", "look", "layout", "sectionBar"):
         if key in source:
             beatmap[key] = source[key]
     Path(args.out).write_text(json.dumps(beatmap, indent=2) + "\n")

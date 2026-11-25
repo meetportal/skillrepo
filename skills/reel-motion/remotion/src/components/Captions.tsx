@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill, continueRender, delayRender, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontsReady } from "../fonts";
 import { buildCaptionPages, modeFrames, splitPunctuation, timePages, type CaptionPage, type PageRules, type PageToken, type TimedPage } from "../lib/captionPages";
-import { captionAccentStyles, captionRules, captionScrim, captionUnderline, layout, motion, type } from "../theme";
-import { captionOptionsSchema, type AccentSpec, type AccentStyle, type CaptionMode, type CaptionModeName, type CaptionOptions, type CaptionWord } from "../types";
+import { captionStageOf, fitInBand, resolveLayout, type CaptionStage } from "../lib/stage";
+import { captionAccentStyles, captionRules, captionScrim, captionUnderline, motion, type } from "../theme";
+import { captionOptionsSchema, type AccentSpec, type AccentStyle, type CaptionMode, type CaptionModeName, type CaptionOptions, type CaptionWord, type LayoutProps } from "../types";
 
 const wordGapEm = 0.26;
 
@@ -72,9 +73,10 @@ const lineWidth = (line: PageToken[], style: AccentStyle) =>
     0,
   );
 
-const pageScale = (page: CaptionPage, style: AccentStyle) => {
+const pageScale = (page: CaptionPage, style: AccentStyle, stage: CaptionStage) => {
   const widest = Math.max(...page.lines.map((line) => lineWidth(line, style)));
-  return Math.min(1, captionRules.maxLineWidthPx / widest);
+  const tallest = pageSize(page, 1, style).height;
+  return Math.min(1, stage.maxWidth / widest, (stage.band.y1 - stage.band.y0) / tallest);
 };
 
 export const resolveCaptionOptions = (options: unknown): CaptionOptions => captionOptionsSchema.parse(options ?? {});
@@ -88,8 +90,8 @@ const pageRulesOf = (options: CaptionOptions): PageRules => ({
 
 export const cutFramesOf = (cuts: number[], fps: number) => cuts.filter((cut) => cut > 0).map((cut) => Math.round(cut * fps));
 
-const pageCenterY = (modes: CaptionMode[], page: TimedPage, fps: number) =>
-  pageUsesCardStage(modes, page.firstFrame / fps, page.endFrame / fps) ? layout.captionY.card : layout.captionY.talk;
+const pageCenterY = (modes: CaptionMode[], page: TimedPage, fps: number, stage: CaptionStage, height: number) =>
+  fitInBand(pageUsesCardStage(modes, page.firstFrame / fps, page.endFrame / fps) ? stage.y.card : stage.y.talk, height, stage.band);
 
 export type CaptionPageLayout = {
   text: string;
@@ -118,6 +120,7 @@ export const layoutCaptionPages = ({
   totalFrames,
   cuts,
   options,
+  layout,
 }: {
   captions: CaptionWord[];
   accents: AccentSpec[];
@@ -127,13 +130,15 @@ export const layoutCaptionPages = ({
   totalFrames: number;
   cuts: number[];
   options?: unknown;
+  layout?: unknown;
 }): CaptionPageLayout[] => {
   const settings = resolveCaptionOptions(options);
+  const stage = captionStageOf(resolveLayout(layout), settings);
   const pages = timePages(buildCaptionPages(captions, accents, hookEndSec, pageRulesOf(settings)), modes, fps, totalFrames, cutFramesOf(cuts, fps));
   return pages.map((page) => {
-    const scale = pageScale(page, settings.accentStyle);
-    const centerY = pageCenterY(modes, page, fps);
+    const scale = pageScale(page, settings.accentStyle, stage);
     const { width, height } = pageSize(page, scale, settings.accentStyle);
+    const centerY = pageCenterY(modes, page, fps, stage, height);
     const half = width / 2;
     const visibleFrames: number[] = [];
     for (let frame = page.firstFrame; frame < page.endFrame; frame++) {
@@ -148,7 +153,7 @@ export const layoutCaptionPages = ({
       visibleFrames,
       scale,
       centerY,
-      bbox: [captionRules.centerX - half, centerY - height / 2, captionRules.centerX + half, centerY + height / 2],
+      bbox: [stage.centerX - half, centerY - height / 2, stage.centerX + half, centerY + height / 2],
     };
   });
 };
@@ -212,6 +217,7 @@ export const Captions = ({
   hookEndSec,
   cuts,
   options,
+  stage: layoutSettings,
 }: {
   captions: CaptionWord[];
   accents: AccentSpec[];
@@ -219,6 +225,7 @@ export const Captions = ({
   hookEndSec: number;
   cuts: number[];
   options?: unknown;
+  stage?: LayoutProps;
 }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
@@ -236,6 +243,7 @@ export const Captions = ({
   }, [fontsLoaded, layoutHandle]);
 
   const settings = useMemo(() => resolveCaptionOptions(options), [options]);
+  const stage = useMemo(() => captionStageOf(layoutSettings ?? resolveLayout(undefined), settings), [layoutSettings, settings]);
   const pages = useMemo(
     () => timePages(buildCaptionPages(captions, accents, hookEndSec, pageRulesOf(settings)), modes, fps, durationInFrames, cutFramesOf(cuts, fps)),
     [captions, accents, modes, hookEndSec, fps, durationInFrames, cuts, settings],
@@ -244,11 +252,11 @@ export const Captions = ({
     () =>
       fontsLoaded
         ? pages.map((page) => {
-            const scale = pageScale(page, settings.accentStyle);
+            const scale = pageScale(page, settings.accentStyle, stage);
             return { scale, ...pageSize(page, scale, settings.accentStyle) };
           })
         : null,
-    [pages, fontsLoaded, settings],
+    [pages, fontsLoaded, settings, stage],
   );
 
   if (!sizes || modeAtFrame(modes, frame, fps) === "hidden") {
@@ -261,7 +269,7 @@ export const Captions = ({
   }
   const size = sizes[pageIndex];
   const scale = size?.scale ?? 1;
-  const centerY = pageCenterY(modes, page, fps);
+  const centerY = pageCenterY(modes, page, fps, stage, size?.height ?? 0);
   const scrim = Math.min(settings.localScrim, captionScrim.max);
 
   return (
@@ -270,7 +278,7 @@ export const Captions = ({
         <div
           style={{
             position: "absolute",
-            left: captionRules.centerX - size.width / 2 - captionScrim.padXPx,
+            left: stage.centerX - size.width / 2 - captionScrim.padXPx,
             top: centerY - size.height / 2 - captionScrim.padYPx,
             width: size.width + captionScrim.padXPx * 2,
             height: size.height + captionScrim.padYPx * 2,
@@ -284,8 +292,8 @@ export const Captions = ({
       <div
         style={{
           position: "absolute",
-          left: captionRules.centerX - captionRules.maxLineWidthPx / 2,
-          width: captionRules.maxLineWidthPx,
+          left: stage.centerX - stage.maxWidth / 2,
+          width: stage.maxWidth,
           top: centerY,
           transform: "translateY(-50%)",
           display: "flex",

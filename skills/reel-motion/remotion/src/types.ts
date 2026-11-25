@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { z } from "zod";
 import { brand } from "./lib/brand";
+import { railEventSchema } from "./lib/rail";
 
 export const faceBoxSchema = z.object({
   cx: z.number(),
@@ -66,6 +67,12 @@ export const captionOptionsSchema = z
     mergeAcrossPauseSec: z.number().min(0).max(1).default(0.25),
     accentStyle: accentStyleSchema.default("serif"),
     localScrim: z.number().min(0).max(0.4).default(0),
+    centerY: z
+      .object({
+        talk: z.number().min(brand.layout.topLogo.y1).max(brand.layout.safe.y1).optional(),
+        card: z.number().min(brand.layout.topLogo.y1).max(brand.layout.safe.y1).optional(),
+      })
+      .optional(),
   })
   .refine((options) => options.bodyMinWords <= options.bodyMaxWords, { message: "bodyMinWords must not exceed bodyMaxWords" });
 
@@ -80,6 +87,7 @@ export const captionModeSchema = z.object({
 export const beatSchema = z.object({
   id: z.string(),
   component: z.string(),
+  mode: captionModeNameSchema.optional(),
   from: z.number(),
   to: z.number(),
   layer: z.number().int().min(-10).max(10).optional(),
@@ -110,6 +118,63 @@ export const topLogoSchema = z.object({
   scrim: z.number().min(0).max(1).default(0.22),
 });
 
+export const framedWindowSchema = z.object({
+  width: z.number().min(600).max(1000).default(880),
+  centerX: z.number().min(440).max(640).default(540),
+  y0: z.number().min(brand.layout.topLogo.y1).max(700).default(356),
+  y1: z.number().min(900).max(1420).default(1330),
+  radius: z.number().min(0).max(80).default(36),
+  borderPx: z.number().min(0).max(6).default(2),
+  zoom: z.number().min(1).max(1.6).default(1),
+  focusY: z.number().min(0.2).max(0.6).default(0.4),
+});
+
+export const framedBackgroundSchema = z.object({
+  glow: z.number().min(0).max(1).default(0.6),
+  grid: z.number().min(0).max(1).default(0.35),
+  periodSec: z.number().min(6).max(40).default(16),
+});
+
+export const beatTransformSchema = z.object({
+  dx: z.number().min(-200).max(200).default(30),
+  dy: z.number().min(-400).max(200).default(-166),
+  scale: z.number().min(0.8).max(1.1).default(0.94),
+});
+
+export const layoutSchema = z.object({
+  mode: z.enum(["full", "framed"]).default("full"),
+  window: framedWindowSchema.prefault({}),
+  background: framedBackgroundSchema.prefault({}),
+  captionY: z
+    .object({
+      talk: z.number().min(brand.layout.topLogo.y1).max(brand.layout.safe.y1).default(1418),
+      card: z.number().min(brand.layout.topLogo.y1).max(brand.layout.safe.y1).default(1418),
+    })
+    .prefault({}),
+  cardBeats: beatTransformSchema.prefault({}),
+  takeoverClip: z.enum(["frame", "window"]).default("frame"),
+});
+
+export const sectionSchema = z.object({
+  from: z.number().nonnegative(),
+  label: z.string(),
+});
+
+export const sectionBarSchema = z.object({
+  enabled: z.boolean().default(false),
+  sections: z.array(sectionSchema).default([]),
+  segments: z.number().int().min(0).max(6).default(3),
+  railEvents: z.array(railEventSchema).default([]),
+  ranges: z.array(topLogoRangeSchema).default([]),
+  hideDuring: z.array(z.string()).default(["EndCard", "LogoPop"]),
+  centerX: z.number().min(440).max(640).default(540),
+  kickerY: z.number().min(brand.layout.topLogo.y1 + 20).max(600).default(262),
+  railY: z.number().min(brand.layout.topLogo.y1 + 20).max(620).default(300),
+  enterFrames: z.number().int().min(0).max(20).default(8),
+  exitFrames: z.number().int().min(1).max(20).default(5),
+  rollFrames: z.number().int().min(4).max(16).default(9),
+});
+
 export const lookSchema = z.object({
   vignette: z.number().min(0).max(1).default(0),
   grain: z.number().min(0).max(1).default(0),
@@ -131,6 +196,8 @@ export const reelPropsSchema = z.object({
   accents: z.array(accentSpecSchema),
   topLogo: topLogoSchema.optional(),
   look: lookSchema.optional(),
+  layout: layoutSchema.optional(),
+  sectionBar: sectionBarSchema.optional(),
   guides: z.boolean().optional(),
 });
 
@@ -149,6 +216,9 @@ export type Beat = z.infer<typeof beatSchema>;
 export type AccentSpec = z.infer<typeof accentSpecSchema>;
 export type TopLogoRange = z.infer<typeof topLogoRangeSchema>;
 export type TopLogoProps = z.infer<typeof topLogoSchema>;
+export type LayoutProps = z.infer<typeof layoutSchema>;
+export type BeatTransform = z.infer<typeof beatTransformSchema>;
+export type SectionBarProps = z.infer<typeof sectionBarSchema>;
 export type LookProps = z.infer<typeof lookSchema>;
 export type ReelProps = z.infer<typeof reelPropsSchema>;
 

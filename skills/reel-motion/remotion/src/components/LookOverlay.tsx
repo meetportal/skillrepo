@@ -3,9 +3,10 @@ import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { look as lookTokens } from "../theme";
 import { lookSchema } from "../types";
 
-export const LookOverlay = ({ look }: { look: unknown }) => {
+export const LookOverlay = ({ look, size }: { look: unknown; size?: { width: number; height: number } }) => {
   const frame = useCurrentFrame();
-  const { width, height } = useVideoConfig();
+  const config = useVideoConfig();
+  const { width, height } = size ?? config;
   const settings = useMemo(() => lookSchema.parse(look ?? {}), [look]);
   if (settings.vignette <= 0 && settings.grain <= 0) {
     return null;

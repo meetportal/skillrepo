@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import { beatSecondsToLocalFrame } from "../lib/beat";
-import { colors, layout } from "../theme";
-import type { Beat } from "../types";
+import { windowBox } from "../lib/stage";
+import { colors, layout, zones } from "../theme";
+import type { Beat, LayoutProps } from "../types";
 import { registry } from "./registry";
 
 const placeholderRowPx = 128;
@@ -64,7 +65,33 @@ const BeatHost = ({ beat, row, durationInFrames }: { beat: Beat; row: number; du
 export const orderBeats = (beats: Beat[]) =>
   beats.map((beat, index) => ({ beat, index })).sort((a, b) => (a.beat.layer ?? 0) - (b.beat.layer ?? 0) || a.index - b.index);
 
-export const BeatLayer = ({ beats }: { beats: Beat[] }) => {
+const cardOrigin = { x: (zones.card.x0 + zones.card.x1) / 2, y: (zones.card.y0 + zones.card.y1) / 2 };
+
+const FramedBeat = ({ beat, stage, children }: { beat: Beat; stage: LayoutProps; children: ReactNode }) => {
+  if (beat.mode === "card") {
+    const { dx, dy, scale } = stage.cardBeats;
+    return (
+      <AbsoluteFill style={{ transformOrigin: `${cardOrigin.x}px ${cardOrigin.y}px`, transform: `translate(${dx}px, ${dy}px) scale(${scale})` }}>
+        {children}
+      </AbsoluteFill>
+    );
+  }
+  if (beat.mode === "takeover" && stage.takeoverClip === "window") {
+    const box = windowBox(stage);
+    return (
+      <AbsoluteFill
+        style={{
+          clipPath: `inset(${box.y0}px ${layout.width - box.x1}px ${layout.height - box.y1}px ${box.x0}px round ${stage.window.radius}px)`,
+        }}
+      >
+        {children}
+      </AbsoluteFill>
+    );
+  }
+  return <>{children}</>;
+};
+
+export const BeatLayer = ({ beats, stage }: { beats: Beat[]; stage?: LayoutProps }) => {
   const { fps } = useVideoConfig();
   const ordered = useMemo(() => orderBeats(beats), [beats]);
   return (
@@ -74,7 +101,13 @@ export const BeatLayer = ({ beats }: { beats: Beat[] }) => {
         const durationInFrames = Math.max(1, Math.round(beat.to * fps) - from);
         return (
           <Sequence key={beat.id} name={`${beat.id} ${beat.component}`} from={from} durationInFrames={durationInFrames}>
-            <BeatHost beat={beat} row={index} durationInFrames={durationInFrames} />
+            {stage ? (
+              <FramedBeat beat={beat} stage={stage}>
+                <BeatHost beat={beat} row={index} durationInFrames={durationInFrames} />
+              </FramedBeat>
+            ) : (
+              <BeatHost beat={beat} row={index} durationInFrames={durationInFrames} />
+            )}
           </Sequence>
         );
       })}
