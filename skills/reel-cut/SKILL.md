@@ -79,7 +79,7 @@ Run from the reel work folder with `SKILLS` set to this repo's `skills/` folder;
    ```
    python $SKILLS/reel-cut/scripts/render_aroll.py --edl edl.json --grade config/grade.json --out-video aroll.mp4 --out-audio voice_cut.wav
    ```
-   Video: each clip decoded once and split; per range the grade from `reel-grade` (rotate, clip filters, tone curve, segment filters, look), working format pinned between filters, one explicit full-to-tv conversion, then the legal stage (`lutyuv` soft toe and shoulder on Y into 17-233, chroma clipped to 16-240; see `reel-grade`). Time-varying tone curves are driven per frame with `sendcmd` into `lutyuv` (command files next to the saved filter graph). Encode `libx264 -preset medium -crf 14 -g 25`, BT.709 tags, `-color_range tv`, CFR. Audio: decoded per clip (mono fold with `pan`, 48 kHz), cut and crossfaded in numpy, written as PCM 24-bit. The drift gate runs at the end.
+   Video: each clip decoded once and split; per range the grade from `reel-grade` (rotate, clip filters, tone curve, segment filters, look), working format pinned between filters, one explicit full-to-tv conversion, then the legal stage (`lutyuv` soft toe and shoulder on Y into 17-233, chroma clipped to 16-240; see `reel-grade`). Time-varying tone curves are driven per frame with `sendcmd` into `lutyuv` (command files next to the saved filter graph). Encode `libx264 -preset medium -crf 14 -g 25` (`--threads N` caps decoder, filter and encoder threads on a shared machine), BT.709 tags, `-color_range tv`, CFR. Audio: decoded per clip (mono fold with `pan`, 48 kHz), cut and crossfaded in numpy, written as PCM 24-bit. The drift gate runs at the end.
 
 3. **Retime words** (timing only).
    ```

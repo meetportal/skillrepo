@@ -42,13 +42,15 @@ def input_video_facts(path):
     return v, fps, video_seconds(v, fps)
 
 
-def encode_command(video, audio, out, duration, preset, crf):
+def encode_command(video, audio, out, duration, preset, crf, threads=None):
     audio_chain = f"[1:a]apad,atrim=end={duration:.6f},aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]"
+    thread_args = ["-filter_complex_threads", str(threads)] if threads else []
+    encoder_threads = ["-threads", str(threads)] if threads else []
     return [
-        "ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats", "-nostdin", "-n", "-i", video, "-i", audio,
+        "ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats", "-nostdin", "-n", *thread_args, "-i", video, "-i", audio,
         "-filter_complex", audio_chain,
         "-map", "0:v:0", "-map", "[a]",
-        "-c:v", "libx264", "-preset", preset, "-profile:v", "high", "-level:v", "4.2", "-crf", str(crf),
+        "-c:v", "libx264", *encoder_threads, "-preset", preset, "-profile:v", "high", "-level:v", "4.2", "-crf", str(crf),
         "-maxrate", "16M", "-bufsize", "32M", "-g", str(2 * SPEC["fps"]), "-keyint_min", str(SPEC["fps"]), "-bf", "2",
         "-pix_fmt", "yuv420p", "-r", str(SPEC["fps"]), "-fps_mode", "cfr",
         "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
@@ -151,6 +153,7 @@ def main():
     parser.add_argument("--srt-max-chars", type=int, default=32, help="max characters per SRT cue (default 32)")
     parser.add_argument("--preset", default="slow", help="x264 preset (slow for delivery; faster presets only for drafts)")
     parser.add_argument("--crf", type=int, default=18)
+    parser.add_argument("--threads", type=int, help="cap the encoder threads (x264 -threads and filter threads); default lets ffmpeg decide")
     parser.add_argument("--dry-run", action="store_true", help="print the command and the output name only")
     args = parser.parse_args()
 
@@ -181,7 +184,7 @@ def main():
     else:
         Path(args.out_dir).mkdir(parents=True, exist_ok=True)
         out = next_version(args.out_dir, args.name)
-    cmd = encode_command(args.video, args.audio, out, duration, args.preset, args.crf)
+    cmd = encode_command(args.video, args.audio, out, duration, args.preset, args.crf, args.threads)
     print(f"output {out} ({duration:.3f}s, {round(duration * fps)} frames)")
     if args.dry_run:
         print(" ".join(shlex.quote(str(c)) for c in cmd))

@@ -13,7 +13,7 @@ python $SKILLS/reel-export/scripts/export.py --video out/gfx.mp4 --audio mix.wav
   --cover-time 0.40 --keep-box 70,300,950,520 --srt words.out.json
 ```
 
-Run from the reel work folder. `--dry-run` prints the ffmpeg command and the version it would write. Exit 1 when the spec gate fails.
+Run from the reel work folder. `--dry-run` prints the ffmpeg command and the version it would write. Exit 1 when the spec gate fails. `--threads N` caps the x264 and filter threads (for a shared machine); without it ffmpeg uses every core.
 
 ## The encode (fixed spec)
 

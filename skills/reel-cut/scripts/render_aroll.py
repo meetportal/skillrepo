@@ -193,6 +193,7 @@ def main():
     parser.add_argument("--gop", type=int, default=25)
     parser.add_argument("--audio-only", action="store_true")
     parser.add_argument("--graph-out", help="where to keep the filter graph script (default next to the video)")
+    parser.add_argument("--threads", type=int, help="cap the ffmpeg encoder and filter threads (for a shared machine); default uses every core")
     args = parser.parse_args()
     edl = load_json(args.edl)
     grade = dict(DEFAULT_GRADE, **(load_json(args.grade) if args.grade else {}))
@@ -211,12 +212,14 @@ def main():
         inputs, graph = build_video_graph(edl, grade, command_dir)
         graph_path.write_text(graph)
         command = ["ffmpeg", "-nostdin", "-hide_banner", "-v", "error", "-nostats", "-y"]
+        if args.threads:
+            command += ["-filter_complex_threads", str(args.threads)]
         for path in inputs:
-            command += ["-i", path]
+            command += [*(["-threads", str(args.threads)] if args.threads else []), "-i", path]
         command += [
             "-filter_complex_script", str(graph_path),
             "-map", "[vout]", "-an", "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1",
-            "-c:v", "libx264", "-preset", args.preset, "-crf", str(args.crf), "-g", str(args.gop),
+            "-c:v", "libx264", *(["-threads", str(args.threads)] if args.threads else []), "-preset", args.preset, "-crf", str(args.crf), "-g", str(args.gop),
             "-pix_fmt", "yuv420p", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
             "-r", f"{fps:g}", "-fps_mode", "cfr", "-movflags", "+faststart", args.out_video,
         ]
