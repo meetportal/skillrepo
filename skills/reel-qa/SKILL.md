@@ -27,9 +27,9 @@ Exit code 0 means every gate that ran passed; 1 means at least one FAIL or ERROR
 | `camera_plan.json` | rhythm (scale changes) | fewer events |
 | `props.json` | expected duration (`durationSec`) | EDL duration (+ `--extra-sec`) |
 | `words.out.json` | ASR diff | asr skipped |
-| `voice.wav` (else `voice_cut.wav`, or `--voice-ref`) | voice sync and stale-voice check | durations only |
+| `voice.wav` (else `voice_cut.wav`, or `--voice-ref`) | voice sync, stale-voice check, splice clicks | durations only; clicks measured on the delivered audio |
 | `aroll.mp4` | black level comparison (double range conversion) | no comparison |
-| `qa/captions_bbox.json` (or `--captions-bbox`) | caption safe zone | captions skipped |
+| `qa/captions_bbox.json` (or `--captions-bbox`), from `reel-motion/scripts/render.sh --caption-boxes` | caption safe zone | captions skipped |
 
 ## Gates
 
@@ -39,14 +39,14 @@ Exit code 0 means every gate that ran passed; 1 means at least one FAIL or ERROR
 | `loudness` | `ebur128=peak=true` on the delivered audio | I = -14 +/- 1 LUFS (`--target-lufs`), true peak at or below -1.5 dBTP, LRA at or below 7 LU |
 | `drift` | video frames / fps vs audio stream duration; then the delivered audio's 2.5 ms RMS envelope cross-correlated against the processed voice in 6 s windows (lag search +/-400 ms) | v/a within 40 ms; voice file length equals the EDL within 40 ms; no window with correlation 0.5+ lagging more than 40 ms |
 | `rhythm` | frame difference on a 108x192 grey decode (peak at least `--scene-threshold` 4.0 and 2x the local median), plus beat in/out times and camera scale changes from the plan | largest gap between visual changes at most 4.0 s (`--max-gap`); every `cues.json` cut visible in the render unless a takeover beat covers it. WARN when scene detection alone leaves a gap over 4 s (the plan closes it; confirm on the sheets) |
-| `splices` | audio discontinuities from the EDL (source change or `a_out` != next `a_in`), on the delivered audio: 5 kHz high-pass burst in +/-10 ms vs the median of 16 to 50 ms either side, max sample step in +/-10 ms vs the 99th percentile of 15 to 50 ms either side, and the dip under local room tone | click = burst over 6 dB (`--click-db`) and step ratio over 2 and peak above -60 dBFS. A dip over 10 dB (`--hole-db`) is a WARN (room-tone hole; lay a bed or room tone under it) |
+| `splices` | audio discontinuities from the EDL (source change or `a_out` != next `a_in`). Clicks are measured on the voice stem (`voice.wav`, else `voice_cut.wav`, or `--voice-ref`) so music and SFX transients near a splice do not count: 5 kHz high-pass burst in +/-10 ms vs the median of 16 to 50 ms either side, and max sample step in +/-10 ms vs the 99th percentile of 15 to 50 ms either side. The room-tone hole (dip under the local level, 10 ms RMS) is measured on the delivered audio, where the bed can fill it. Without a voice stem both run on the delivered audio | click = burst over 6 dB (`--click-db`) and step ratio over 2 and peak above -60 dBFS. A dip over 10 dB (`--hole-db`) is a WARN: cut 1 s around it from the delivered audio, `voice.wav` and the bed stem and compare 10 ms RMS and spectrograms. If the bed stays well above the voice's room tone through the dip (15 dB or more), the hole is masked; otherwise lay room tone under the splice |
 | `asr` | `reel-captions/scripts/asr_diff.py` (faster-whisper large-v3 int8 on the delivered audio, difflib against `words.out.json`) | no blocking missing, extra or changed words. Deliberate caption edits go in `--asr-allow "intended>heard"`; brand spellings in `--dictionary`. `--asr-heard` reuses a transcript |
 | `captions` | page boxes from the caption renderer | every page inside x 70-950, y 220-1500 and on screen at least 0.35 s |
 | `levels` | `signalstats` on every 5th frame (`--levels-step`), grouped by `cues.json` segment plus the end card; raw Y-plane percentiles on 3 frames per segment; 1st-percentile black compared with the same frame of `aroll.mp4` | p0.1 at least 15 and p99.9 at most 236 per segment. A black-level shift of 6+ codes against the A-roll is a WARN (graphics over the frame, or a second range conversion) |
 | `sheets` | one strip per cut and per beat entrance, `--sheet-radius` 4 frames either side, 180x320 thumbnails, event frame outlined red | INFO: read every sheet |
 | `first_frame` | Laplacian variance of the face box (from `cues.json` segment 0, x1.4) on frames 0, 1, 2 vs the median of every 5th frame from 0.5 s to the end of the first shot (max 4 s) | all three at least 60 % of that median (`--first-frame-ratio`). Writes `qa/first_frames.jpg` |
 
-`captions_bbox.json` format (one entry per caption page, output seconds or ms):
+`captions_bbox.json` format (one entry per caption page, output seconds or ms; `reel-motion`'s exporter writes `start`/`end` of the page's visible frames and `bbox`, plus extra keys the gate ignores):
 
 ```json
 {"pages": [{"text": "first page", "start": 0.04, "end": 0.90, "bbox": [180, 1130, 900, 1230]},

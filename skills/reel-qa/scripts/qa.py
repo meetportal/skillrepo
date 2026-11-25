@@ -189,6 +189,12 @@ def window_lags(reference, candidate, span, hop=120, window_s=6.0, max_lag_s=0.4
     return results
 
 
+def voice_reference(reel, args):
+    if args.voice_ref:
+        return Path(args.voice_ref)
+    return next((p for p in (reel.work / "voice.wav", reel.work / "voice_cut.wav") if p.is_file()), None)
+
+
 def gate_drift(reel, args, ctx):
     if not reel.audio:
         return gate("fail", "no audio stream")
@@ -198,8 +204,7 @@ def gate_drift(reel, args, ctx):
     if gap > 0.040:
         problems.append(f"video {reel.duration:.3f}s vs audio {audio_s:.3f}s differ by {gap * 1000:.0f} ms")
     data = {"video_s": round(reel.duration, 4), "audio_s": round(audio_s, 4), "difference_ms": round(gap * 1000, 1)}
-    ref_path = Path(args.voice_ref) if args.voice_ref else next(
-        (p for p in (reel.work / "voice.wav", reel.work / "voice_cut.wav") if p.is_file()), None)
+    ref_path = voice_reference(reel, args)
     status = "fail" if problems else "pass"
     if ref_path and ref_path.is_file():
         reference = read_wav_mono(ref_path)
@@ -340,12 +345,25 @@ def gate_splices(reel, args, ctx):
     if not times:
         return gate("pass", "EDL has no audio splices", splices=[])
     sos = butter(4, 5000, btype="highpass", fs=SR, output="sos")
-    samples = reel.audio_samples()
+    mix = reel.audio_samples()
+    voice_path = voice_reference(reel, args)
+    voice = read_wav_mono(voice_path) if voice_path and voice_path.is_file() else None
+    click_source = str(voice_path) if voice is not None else "delivered mix (no voice stem found)"
     rows, clicks, holes = [], [], []
     for t in times:
-        metrics = splice_metrics(samples, t, sos)
-        if metrics is None:
+        mix_metrics = splice_metrics(mix, t, sos)
+        if mix_metrics is None:
             continue
+        click_metrics = splice_metrics(voice, t, sos) if voice is not None else mix_metrics
+        if click_metrics is None:
+            continue
+        metrics = {
+            "t": t,
+            "hf_burst_db": click_metrics["hf_burst_db"], "hf_peak_dbfs": click_metrics["hf_peak_dbfs"],
+            "step_ratio": click_metrics["step_ratio"], "hole_db": mix_metrics["hole_db"],
+            "voice_hole_db": click_metrics["hole_db"] if voice is not None else None,
+            "mix_hf_burst_db": mix_metrics["hf_burst_db"], "mix_step_ratio": mix_metrics["step_ratio"],
+        }
         metrics["click"] = metrics["hf_burst_db"] > args.click_db and metrics["step_ratio"] > 2.0 and metrics["hf_peak_dbfs"] > -60
         metrics["hole"] = metrics["hole_db"] > args.hole_db
         rows.append(metrics)
@@ -354,10 +372,12 @@ def gate_splices(reel, args, ctx):
         if metrics["hole"]:
             holes.append(t)
     status = "fail" if clicks else ("warn" if holes else "pass")
-    summary = f"{len(rows)} splices, clicks at {clicks or 'none'}"
+    summary = f"{len(rows)} splices, clicks on the voice stem at {clicks or 'none'}"
+    if voice is None:
+        summary = f"{len(rows)} splices, clicks on the delivered mix (no voice stem) at {clicks or 'none'}"
     if holes:
-        summary += f"; room-tone holes over {args.hole_db} dB at {holes} (lay a bed or room tone under them)"
-    return gate(status, summary, splices=rows)
+        summary += f"; room-tone holes over {args.hole_db} dB in the delivered mix at {holes} (listen; lay room tone under them if audible)"
+    return gate(status, summary, splices=rows, click_source=click_source, hole_source=str(reel.path))
 
 
 def gate_asr(reel, args, ctx):
@@ -631,7 +651,7 @@ def write_report(results, reel, out_dir, started):
         lines.append("Voice sync windows (lag ms / corr): " + ", ".join(f"{w['from']:.0f}-{w['to']:.0f}s {w['lag_ms']:+.0f}/{w['corr']:.2f}" for w in drift["sync_windows"]))
     splices = results.get("splices")
     if splices and splices.get("splices"):
-        lines.append("Splices (t: HF burst dB / step ratio / hole dB): " + ", ".join(
+        lines.append("Splices (t: voice HF burst dB / voice step ratio / mix hole dB): " + ", ".join(
             f"{s['t']:.2f}: {s['hf_burst_db']:+.1f}/{s['step_ratio']:.1f}/{s['hole_db']:.1f}" for s in splices["splices"]))
     asr = results.get("asr")
     if asr and asr.get("blocking"):
@@ -665,7 +685,7 @@ def main():
     parser.add_argument("--expected-duration", type=float, help="delivery length in seconds (default: props.json durationSec, else edl + --extra-sec)")
     parser.add_argument("--extra-sec", type=float, help="end card seconds after the A-roll")
     parser.add_argument("--target-lufs", type=float, default=-14.0)
-    parser.add_argument("--voice-ref", help="processed voice for the sync check (default <work>/voice.wav, else voice_cut.wav)")
+    parser.add_argument("--voice-ref", help="processed voice for the sync check and the splice click check (default <work>/voice.wav, else voice_cut.wav)")
     parser.add_argument("--max-gap", type=float, default=4.0, help="largest allowed gap between visual changes in seconds")
     parser.add_argument("--scene-threshold", type=float, default=4.0, help="mean abs frame difference (0-255, 108x192 grey) that counts as a visual change")
     parser.add_argument("--scene-ratio", type=float, default=2.0, help="and at least this multiple of the local median difference")
