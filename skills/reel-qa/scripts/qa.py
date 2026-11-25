@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,10 +14,12 @@ from scipy.signal import butter, sosfiltfilt
 
 SKILLS_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SKILLS_DIR / "reel-export" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import framecheck
 from delivery_spec import check as spec_check
 from delivery_spec import frame_rate, loudness, probe
 
-GATES = ["spec", "loudness", "drift", "rhythm", "splices", "asr", "captions", "levels", "sheets", "first_frame"]
+GATES = ["spec", "loudness", "silence", "drift", "rhythm", "frames", "cover", "splices", "asr", "captions", "levels", "sheets", "first_frame"]
 SAFE_BOX = (70, 220, 950, 1500)
 SR = 48000
 
@@ -52,6 +55,13 @@ class Reel:
         self.camera = load_json(self.work / "camera_plan.json")
         self.props = load_json(self.work / "props.json")
         self._audio = None
+        self._small = None
+
+    def small_rgb(self, threads):
+        if self._small is None:
+            self._small = framecheck.decode(self.path, threads)
+            self.frames = len(self._small)
+        return self._small
 
     def audio_samples(self):
         if self._audio is None:
@@ -139,6 +149,86 @@ def gate_loudness(reel, args, ctx):
         problems.append(f"LRA {values['LRA']} LU above 7")
     summary = f"I {values['I']} LUFS, TP {values['TP']} dBTP, LRA {values['LRA']} LU"
     return gate("fail" if problems else "pass", summary + ("; " + "; ".join(problems) if problems else ""), **values)
+
+
+def brand_tokens(args):
+    folder = Path(args.brand) if args.brand else Path(os.environ.get("REEL_BRAND") or SKILLS_DIR / "mailinfra-brand")
+    return load_json(folder / "brand.json") or {}
+
+
+def mix_dropouts(args):
+    spans = []
+    for item in framecheck.find_key(load_json(args.mix_report_path) or {}, "dropouts") or []:
+        span = framecheck.time_range(item)
+        if span:
+            spans.append(span)
+    return spans
+
+
+def gate_silence(reel, args, ctx):
+    if not reel.audio:
+        return gate("fail", "no audio stream")
+    result = subprocess.run(
+        ["ffmpeg", "-v", "info", "-nostdin", "-i", str(reel.path), "-map", "0:a:0",
+         "-af", f"silencedetect=n={args.silence_db}dB:d={args.silence_min}", "-f", "null", "-"],
+        capture_output=True, text=True, check=True,
+    )
+    spans, start = [], None
+    for line in result.stderr.splitlines():
+        found = re.search(r"silence_start: (-?[\d.]+)", line)
+        if found:
+            start = max(0.0, float(found.group(1)))
+        found = re.search(r"silence_end: ([\d.]+)", line)
+        if found and start is not None:
+            spans.append((start, float(found.group(1))))
+            start = None
+    if start is not None:
+        spans.append((start, reel.duration))
+    dropouts = mix_dropouts(args)
+    tail = reel.duration - 0.3
+    reported, skipped = [], []
+    for lo, hi in spans:
+        planned = any(lo < d_hi and hi > d_lo for d_lo, d_hi in dropouts)
+        end = min(hi, tail)
+        if planned or end - lo < args.silence_min:
+            skipped.append({"from": round(lo, 3), "to": round(hi, 3), "reason": "planned dropout" if planned else "last 0.3 s"})
+            continue
+        reported.append({"from": round(lo, 3), "to": round(end, 3), "seconds": round(end - lo, 3)})
+    summary = (f"{len(reported)} silences under {args.silence_db} dB for {args.silence_min}+ s: "
+               + ", ".join(f"{r['from']:.2f}-{r['to']:.2f}" for r in reported)) if reported else f"no silence under {args.silence_db} dB for {args.silence_min}+ s"
+    if skipped:
+        summary += f" ({len(skipped)} planned or in the tail skipped)"
+    return gate("warn" if reported else "pass", summary, silences=reported, skipped=skipped, dropouts=dropouts)
+
+
+def gate_frames(reel, args, ctx):
+    frames = reel.small_rgb(args.threads)
+    result = framecheck.check(reel, args, frames, brand_tokens(args))
+    return gate(result.pop("status"), result.pop("summary"), **result)
+
+
+def gate_cover(reel, args, ctx):
+    if reel.cues is None:
+        return gate("skip", "no cues.json in the work folder")
+    windows = reel.cues.get("cover", [])
+    if not windows:
+        return gate("pass", "no cover windows in cues.json", windows=[])
+    frames = reel.small_rgb(args.threads)
+    rows, bad = [], []
+    for window in windows:
+        lo, hi = framecheck.time_range(window)
+        first, last = framecheck.to_frame(lo, reel.fps), min(len(frames), framecheck.to_frame(hi, reel.fps)) - 1
+        if last < first:
+            continue
+        share = framecheck.skin_share(frames[first:last + 1], args.cover_rb)
+        uncovered = [first + int(i) for i in np.flatnonzero(share > args.cover_max_skin)]
+        rows.append({"from": lo, "to": hi, "frames": [first, last], "max_share": round(float(share.max()), 4),
+                     "uncovered": uncovered, "reason": window.get("reason", "") if isinstance(window, dict) else ""})
+        if uncovered:
+            bad.append(f"{lo:.2f}-{hi:.2f}s frames {framecheck.compact(uncovered)} (max share {share.max():.2f})")
+    summary = (f"A-roll shows through {len(bad)} of {len(rows)} cover windows (R-B > {args.cover_rb} on over "
+               f"{args.cover_max_skin:.0%} of the frame): " + "; ".join(bad)) if bad else f"{len(rows)} cover windows fully covered"
+    return gate("fail" if bad else "pass", summary, windows=rows)
 
 
 def envelope(samples, hop):
@@ -396,7 +486,10 @@ def gate_asr(reel, args, ctx):
         cmd += ["--dictionary", args.dictionary]
     if args.asr_allow:
         cmd += ["--allow", args.asr_allow]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    if "--threads" in script.read_text():
+        cmd += ["--threads", str(args.threads)]
+    env = {**os.environ, "OMP_NUM_THREADS": str(args.threads)}
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode not in (0, 1) or not out.is_file():
         return gate("error", f"asr_diff.py exited {result.returncode}: {result.stderr.strip()[-400:]}")
     report = json.loads(out.read_text())
@@ -417,17 +510,78 @@ def page_time(page, key):
     return float(page[key]) if key in page else float(page[key + "Ms"]) / 1000
 
 
+def srgb_luminance(rgb):
+    c = np.asarray(rgb, np.float64) / 255.0
+    c = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    return c @ np.array([0.2126, 0.7152, 0.0722])
+
+
+def hex_rgb(value):
+    value = value.lstrip("#")
+    return [int(value[i:i + 2], 16) for i in (0, 2, 4)]
+
+
+def accent_pages(pages, accents):
+    hits, seen = {}, {}
+    for index, page in enumerate(pages):
+        text = page.get("text", "")
+        for accent in accents:
+            word = accent if isinstance(accent, str) else accent.get("text", "")
+            if not word.strip():
+                continue
+            found = len(re.findall(r"(?<!\w)" + re.escape(word.strip()) + r"(?!\w)", text, re.IGNORECASE))
+            if not found:
+                continue
+            before = seen.get(word, 0)
+            seen[word] = before + found
+            wanted = accent.get("n") if isinstance(accent, dict) else None
+            if wanted is None or before < int(wanted) <= before + found:
+                hits.setdefault(index, []).append(word.strip())
+    return hits
+
+
+def accent_contrast(reel, args, pages):
+    accents = (reel.props or {}).get("accents") or (reel.beatmap or {}).get("accents") or []
+    hits = accent_pages(pages, accents)
+    if not hits:
+        return [], None
+    colour = args.accent_color or (brand_tokens(args).get("colors") or {}).get("accent", "#F09C48")
+    accent_l = float(srgb_luminance(hex_rgb(colour)))
+    mids = {index: (pages[index]["firstFrame"] + max(pages[index]["firstFrame"], pages[index]["endFrame"] - 1)) // 2 for index in hits}
+    frames = reel.frames_at(reel.path, mids.values())
+    rows = []
+    for index, words in sorted(hits.items()):
+        frame = frames.get(mids[index])
+        if frame is None:
+            continue
+        x0, y0, x1, y1 = [int(round(v)) for v in page_box(pages[index])]
+        ring = args.accent_ring
+        ox0, oy0 = max(0, x0 - ring), max(0, y0 - ring)
+        ox1, oy1 = min(frame.shape[1], x1 + ring), min(frame.shape[0], y1 + ring)
+        mask = np.zeros(frame.shape[:2], bool)
+        mask[oy0:oy1, ox0:ox1] = True
+        mask[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = False
+        pixels = frame[mask][:, ::-1]
+        if not len(pixels):
+            continue
+        background = float(np.percentile(srgb_luminance(pixels), 75))
+        ratio = (max(accent_l, background) + 0.05) / (min(accent_l, background) + 0.05)
+        rows.append({"page": index, "text": pages[index].get("text", ""), "accents": words, "frame": mids[index],
+                     "t": round(mids[index] / reel.fps, 3), "background_l75": round(background, 4), "contrast": round(ratio, 2),
+                     "low": ratio < args.accent_contrast})
+    return rows, colour
+
+
 def gate_captions(reel, args, ctx):
-    path = Path(args.captions_bbox) if args.captions_bbox else Path(args.out_dir) / "captions_bbox.json"
-    data = load_json(path)
-    if data is None:
+    path = Path(args.captions_path)
+    if not path.is_file():
         return gate("skip", f"no caption bbox file ({path}); export one from the caption renderer to gate the safe zone")
-    pages = data["pages"] if isinstance(data, dict) else data
+    pages = framecheck.caption_pages(path, reel.fps)
     x0s, y0s, x1s, y1s = SAFE_BOX
     bad = []
     for index, page in enumerate(pages):
         box = page_box(page)
-        start, end = page_time(page, "start"), page_time(page, "end")
+        start, end = page["start"], page["end"]
         reasons = []
         if box[0] < x0s or box[1] < y0s or box[2] > x1s or box[3] > y1s:
             reasons.append(f"bbox {[round(v) for v in box]} outside x {x0s}-{x1s}, y {y0s}-{y1s}")
@@ -435,8 +589,25 @@ def gate_captions(reel, args, ctx):
             reasons.append(f"on screen {end - start:.2f}s < 0.35s")
         if reasons:
             bad.append({"page": index, "text": page.get("text", ""), "start": start, "problems": reasons})
-    status = "fail" if bad else "pass"
-    return gate(status, f"{len(pages)} pages, {len(bad)} outside the safe box or too short", violations=bad, source=str(path))
+    cut_frames = [framecheck.to_frame(t, reel.fps) for t in (reel.cues or {}).get("cuts", [])]
+    across = []
+    for index, page in enumerate(pages):
+        for cut in cut_frames:
+            late = page["endFrame"] - cut
+            if 1 <= late <= 3 and page["firstFrame"] < cut:
+                across.append({"page": index, "text": page.get("text", ""), "cut": round(cut / reel.fps, 3), "cut_frame": cut,
+                               "end_frame": page["endFrame"], "frames_after_cut": late})
+    contrast, colour = accent_contrast(reel, args, pages)
+    low = [row for row in contrast if row["low"]]
+    parts = [f"{len(pages)} pages, {len(bad)} outside the safe box or too short"]
+    if across:
+        parts.append(f"{len(across)} pages end 1-3 frames after a cut: " + ", ".join(
+            f"{a['text']!r} +{a['frames_after_cut']}f after {a['cut']:.2f}s" for a in across))
+    if contrast:
+        parts.append(f"accent {colour} contrast under {args.accent_contrast}:1 on {len(low)} of {len(contrast)} accent pages"
+                     + (": " + ", ".join(f"{r['text']!r} {r['contrast']:.2f}:1 at {r['t']:.2f}s" for r in low) if low else ""))
+    status = "fail" if bad else ("warn" if across or low else "pass")
+    return gate(status, "; ".join(parts), violations=bad, across_cuts=across, accent_contrast=contrast, source=str(path))
 
 
 def signalstats(path, step):
@@ -541,7 +712,7 @@ def gate_sheets(reel, args, ctx):
         return gate("skip", "no cues.json cuts or beatmap.json beats to sheet")
     folder = Path(args.out_dir) / "sheets"
     folder.mkdir(parents=True, exist_ok=True)
-    for old in folder.glob("*.jpg"):
+    for old in folder.glob("[0-9]*.jpg"):
         old.unlink()
     radius, thumb_w, thumb_h = args.sheet_radius, 180, 320
     written = []
@@ -613,6 +784,7 @@ def gate_first_frame(reel, args, ctx):
 RUNNERS = {
     "spec": gate_spec, "loudness": gate_loudness, "drift": gate_drift, "rhythm": gate_rhythm, "splices": gate_splices,
     "asr": gate_asr, "captions": gate_captions, "levels": gate_levels, "sheets": gate_sheets, "first_frame": gate_first_frame,
+    "frames": gate_frames, "silence": gate_silence, "cover": gate_cover,
 }
 
 NOT_COVERED = [
@@ -659,6 +831,30 @@ def write_report(results, reel, out_dir, started):
     captions = results.get("captions")
     if captions and captions.get("violations"):
         lines += ["", "Caption pages:"] + [f"- {v['start']:.2f}s {v['text']!r}: {'; '.join(v['problems'])}" for v in captions["violations"]]
+    if captions and captions.get("across_cuts"):
+        lines += ["", "Caption pages ending after a cut (end them on the cut frame):"] + [
+            f"- {a['text']!r} ends f{a['end_frame']}, {a['frames_after_cut']} frames after the cut at {a['cut']:.2f}s (f{a['cut_frame']})" for a in captions["across_cuts"]]
+    if captions and captions.get("accent_contrast"):
+        lines += ["", "Accent contrast (page, frame, background L75, ratio):"] + [
+            f"- {r['text']!r} f{r['frame']} {r['background_l75']:.3f} {r['contrast']:.2f}:1{' LOW' if r['low'] else ''}" for r in captions["accent_contrast"]]
+    frames = results.get("frames")
+    if frames and frames.get("segments"):
+        empty = [e for e in frames.get("entrances", []) if e["empty"]]
+        if empty:
+            lines += ["", "Empty entrance frames:"] + [f"- {e['beat']} {e['component']} f{e['frame']} ({e['t']:.2f}s, {e['zone']}): {'; '.join(e['reasons'])}" for e in empty]
+        if frames.get("pops"):
+            lines += ["", "Unplanned pops (frame, s): " + ", ".join(f"f{n} {n / reel.fps:.2f}" for n in frames["pops"])]
+        lines += ["", f"Frames: mean diff {frames['mean_diff']}, held {frames['held_percent']}% (diff < {frames['thresholds']['frozen_diff']}); "
+                  f"full sheets `{Path(frames['sheets'][0]).parent}/full_*.jpg` ({len(frames['sheets'])})" if frames.get("sheets") else "",
+                  "", "| Segment | From | To | luma | std | p2 | p98 | sat |", "|---|---|---|---|---|---|---|---|"]
+        lines += [f"| {r['segment']} | {r['from']} | {r['to']} | {r['mean']} | {r['std']} | {r['p2']} | {r['p98']} | {r['sat']} |" for r in frames["segments"]]
+    silence = results.get("silence")
+    if silence and silence.get("silences"):
+        lines += ["", "Silences: " + ", ".join(f"{r['from']:.2f}-{r['to']:.2f}" for r in silence["silences"])]
+    cover = results.get("cover")
+    if cover and cover.get("windows"):
+        lines += ["", "Cover windows (from-to, max skin share, uncovered frames): " + ", ".join(
+            f"{w['from']:.2f}-{w['to']:.2f} {w['max_share']:.3f} {framecheck.compact(w['uncovered']) or 'none'}" for w in cover["windows"])]
     levels = results.get("levels")
     if levels and levels.get("segments"):
         lines += ["", "| Segment | From | To | YMIN | YLOW | YAVG | YHIGH | YMAX | p0.1 | p99.9 | black vs A-roll |", "|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -675,8 +871,9 @@ def write_report(results, reel, out_dir, started):
 def main():
     parser = argparse.ArgumentParser(
         description="Run every delivery gate on a rendered reel and write <out-dir>/report.md and report.json. "
-                    "Reads edl.json, cues.json, beatmap.json, camera_plan.json, props.json, words.out.json, voice.wav and aroll.mp4 "
-                    "from the work folder when present. Exit 1 when any gate fails.")
+                    "Reads edl.json, cues.json, beatmap.json, camera_plan.json, props.json, words.out.json, voice.wav, aroll.mp4, "
+                    "3d/*.json, qa/captions_bbox.json and qa/mix_report.json from the work folder when present. Exit 1 when any gate fails. "
+                    f"Gates: {', '.join(GATES)}.")
     parser.add_argument("--reel", required=True, help="delivered MP4 (or any muxed render) to check")
     parser.add_argument("--work", default=".", help="reel work folder (default: current directory)")
     parser.add_argument("--out-dir", help="report folder (default <work>/qa)")
@@ -692,6 +889,7 @@ def main():
     parser.add_argument("--click-db", type=float, default=6.0, help="5 kHz high-pass burst over context that counts as a click")
     parser.add_argument("--hole-db", type=float, default=10.0, help="dip under the local room tone that is reported as a hole")
     parser.add_argument("--asr-model", default="large-v3")
+    parser.add_argument("--threads", type=int, default=4, help="CPU threads for every faster-whisper call and for the frames decode")
     parser.add_argument("--asr-prompt", default="", help="keyterm prompt for the ASR pass (brand names, acronyms)")
     parser.add_argument("--asr-allow", default="", help="comma list of intended>heard pairs that are deliberate caption edits")
     parser.add_argument("--asr-heard", help="existing transcript JSON [{text,start,end}] instead of running the model")
@@ -700,11 +898,28 @@ def main():
     parser.add_argument("--levels-step", type=int, default=5, help="signalstats on every Nth frame")
     parser.add_argument("--sheet-radius", type=int, default=4, help="frames either side of each cut or beat entrance")
     parser.add_argument("--first-frame-ratio", type=float, default=0.6, help="frames 0-2 face sharpness must reach this share of the hook median")
+    parser.add_argument("--frozen-diff", type=float, default=0.25, help="frames: mean abs grey difference (0-255, 180x320) under which a frame counts as unchanged")
+    parser.add_argument("--frozen-frames", type=int, default=12, help="frames: this many unchanged frames in a row is a frozen span")
+    parser.add_argument("--entrance-min-diff", type=float, default=0.5, help="frames: a beat's zone must change at least this much on its first frame")
+    parser.add_argument("--entrance-lag-ratio", type=float, default=4.0, help="frames: the zone changing this many times more (+2) on the second frame than on the first means the graphic lands a frame late")
+    parser.add_argument("--entrance-blank", type=float, default=0.004, help="frames: inner-zone detail (mean abs luma gradient, 0-1) under which the first or second frame of a beat is a blank panel")
+    parser.add_argument("--handoff-uncovered", type=float, default=0.2, help="frames: at a handoff between two beats in one zone, the first frame may show at most this much more A-roll skin share than both neighbours")
+    parser.add_argument("--silence-db", type=float, default=-45.0, help="silence: level that counts as silence (dBFS)")
+    parser.add_argument("--silence-min", type=float, default=0.3, help="silence: shortest reported silence in seconds")
+    parser.add_argument("--cover-rb", type=float, default=20.0, help="cover: a pixel is A-roll skin when R - B exceeds this (0-255)")
+    parser.add_argument("--cover-max-skin", type=float, default=0.05, help="cover: largest allowed share of skin pixels on any frame of a cover window")
+    parser.add_argument("--accent-color", help="captions: accent colour for the contrast check (default brand colors.accent)")
+    parser.add_argument("--accent-contrast", type=float, default=3.0, help="captions: WCAG contrast of the accent against the background ring under which a page is a WARN")
+    parser.add_argument("--accent-ring", type=int, default=24, help="captions: width in px of the background ring around the page box")
+    parser.add_argument("--brand", help="brand folder with brand.json (default $REEL_BRAND, else the bundled mailinfra-brand)")
+    parser.add_argument("--mix-report", help="mix report with planned dropouts (default <out-dir>/mix_report.json)")
     args = parser.parse_args()
 
     work = Path(args.work).resolve()
     args.out_dir = str(Path(args.out_dir).resolve() if args.out_dir else work / "qa")
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+    args.captions_path = str(Path(args.captions_bbox).resolve() if args.captions_bbox else Path(args.out_dir) / "captions_bbox.json")
+    args.mix_report_path = str(Path(args.mix_report).resolve() if args.mix_report else Path(args.out_dir) / "mix_report.json")
     selected = [g for g in (args.only.split(",") if args.only else GATES) if g]
     unknown = [g for g in selected + [s for s in args.skip.split(",") if s] if g not in GATES]
     if unknown:
